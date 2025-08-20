@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tornado Simulator</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #eef;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  #controls {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    z-index: 10;
+  }
+
+  #controls input {
+    width: 150px;
+    margin: 5px 0;
+  }
+
+  #scene {
+    width: 100%;
+    height: 100vh;
+    position: relative;
+    perspective: 1000px;
+    overflow: hidden;
+  }
+
+  /* Tornado styling */
+  #tornado {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 50px;
+    height: 200px;
+    background: linear-gradient(#555, #222);
+    border-radius: 25px;
+    transform-origin: bottom center;
+    transform: scaleX(1);
+    transition: all 0.2s ease;
+    box-shadow: 0 0 20px rgba(255,255,255,0.7);
+  }
+
+  /* Structures styling */
+  .structure {
+    position: absolute;
+    bottom: 0;
+    width: 50px;
+    height: 50px;
+    background-color: #8B4513; /* default for house */
+    border: 2px solid #333;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    transition: all 0.3s ease;
+  }
+
+  /* House */
+  #house {
+    left: 100px;
+    background-color: #a0522d;
+    width: 60px;
+    height: 60px;
+    border-radius: 4px;
+  }
+
+  /* Trees */
+  #tree1 {
+    left: 300px;
+    background-color: #228b22;
+    width: 20px;
+    height: 80px;
+    border-radius: 3px;
+  }
+
+  #tree2 {
+    left: 400px;
+    background-color: #228b22;
+    width: 20px;
+    height: 80px;
+    border-radius: 3px;
+  }
+
+  /* Damage styles */
+  .damaged {
+    opacity: 0.3;
+    background-color: #555;
+  }
+
+  /* Moving tornado */
+  @keyframes moveTornado {
+    from { left: 0; }
+    to { left: calc(100% - 50px); }
+  }
+
+  /* Button styles */
+  button {
+    margin: 5px 0;
+    padding: 5px 10px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <div>
+    <label>Wind Speed: <span id="windValue">50</span></label><br/>
+    <input type="range" id="windSlider" min="10" max="100" value="50" />
+  </div>
+  <div>
+    <label>Tornado Width: <span id="widthValue">50</span></label><br/>
+    <input type="range" id="widthSlider" min="30" max="150" value="50" />
+  </div>
+  <button id="startBtn">Start</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<div id="scene">
+  <!-- Tornado -->
+  <div id="tornado"></div>
+
+  <!-- Structures -->
+  <div id="house" class="structure"></div>
+  <div id="tree1" class="structure"></div>
+  <div id="tree2" class="structure"></div>
+</div>
+
+<script>
+  const tornado = document.getElementById('tornado');
+  const scene = document.getElementById('scene');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  const windSlider = document.getElementById('windSlider');
+  const widthSlider = document.getElementById('widthSlider');
+  const windValueLabel = document.getElementById('windValue');
+  const widthValueLabel = document.getElementById('widthValue');
+
+  const house = document.getElementById('house');
+  const tree1 = document.getElementById('tree1');
+  const tree2 = document.getElementById('tree2');
+
+  let animationId = null;
+  let tornadoMoving = false;
+
+  // Update labels
+  windSlider.addEventListener('input', () => {
+    windValueLabel.textContent = windSlider.value;
+  });
+  widthSlider.addEventListener('input', () => {
+    widthValueLabel.textContent = widthSlider.value;
+    updateTornadoSize();
+  });
+
+  function updateTornadoSize() {
+    const width = parseInt(widthSlider.value);
+    tornado.style.width = width + 'px';
+  }
+
+  // Reset scene
+  function resetScene() {
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+      animationId = null;
+    }
+    // Reset tornado position
+    tornado.style.left = '0px';
+    // Reset structure states
+    house.classList.remove('damaged');
+    house.style.opacity = 1;
+    house.style.backgroundColor = '#a0522d';
+
+    tree1.classList.remove('damaged');
+    tree1.style.opacity = 1;
+    tree1.style.backgroundColor = '#228b22';
+
+    tree2.classList.remove('damaged');
+    tree2.style.opacity = 1;
+    tree2.style.backgroundColor = '#228b22';
+
+    // Reset tornado size
+    updateTornadoSize();
+  }
+
+  // Damage calculation based on wind speed
+  function damageLevel(windSpeed) {
+    if (windSpeed > 80) return 'high';
+    if (windSpeed > 50) return 'medium';
+    return 'low';
+  }
+
+  // Damage structures based on tornado width and wind speed
+  function damageStructures() {
+    const windSpeed = parseInt(windSlider.value);
+    const width = parseInt(widthSlider.value);
+    const damageFactor = damageLevel(windSpeed);
+
+    // Damage probability
+    let damageProb;
+    if (damageFactor === 'high') damageProb = 0.9;
+    else if (damageFactor === 'medium') damageProb = 0.6;
+    else damageProb = 0.3;
+
+    // Damage to house
+    if (Math.random() < damageProb) {
+      house.classList.add('damaged');
+      house.style.opacity = 0.3;
+      house.style.backgroundColor = '#555';
+    }
+
+    // Damage to trees
+    [tree1, tree2].forEach(tree => {
+      if (Math.random() < damageProb) {
+        tree.classList.add('damaged');
+        tree.style.opacity = 0.3;
+        tree.style.backgroundColor = '#555';
+      }
+    });
+  }
+
+  // Animate tornado
+  function startTornado() {
+    if (tornadoMoving) return; // prevent multiple starts
+    tornadoMoving = true;
+
+    const sceneWidth = scene.clientWidth;
+    const tornadoWidth = parseInt(tornado.style.width);
+    let position = 0;
+
+    function move() {
+      if (position + tornadoWidth >= sceneWidth) {
+        cancelAnimationFrame(animationId);
+        tornadoMoving = false;
+        return;
+      }
+      position += 2; // speed of movement
+      tornado.style.left = position + 'px';
+
+      // Check for collision with structures
+      checkCollision();
+
+      animationId = requestAnimationFrame(move);
+    }
+
+    move();
+  }
+
+  function checkCollision() {
+    const tornadoRect = tornado.getBoundingClientRect();
+
+    // Check house
+    const houseRect = house.getBoundingClientRect();
+    if (rectsOverlap(tornadoRect, houseRect) && !house.classList.contains('damaged')) {
+      damageStructures();
+    }
+
+    // Check trees
+    [tree1, tree2].forEach(tree => {
+      const treeRect = tree.getBoundingClientRect();
+      if (rectsOverlap(tornadoRect, treeRect) && !tree.classList.contains('damaged')) {
+        damageStructures();
+      }
+    });
+  }
+
+  function rectsOverlap(r1, r2) {
+    return !(r2.left > r1.right || 
+             r2.right < r1.left || 
+             r2.top > r1.bottom || 
+             r2.bottom < r1.top);
+  }
+
+  // Event listeners
+  document.getElementById('startBtn').addEventListener('click', () => {
+    startTornado();
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    resetScene();
+  });
+
+  // Initialize size
+  updateTornadoSize();
+
+  // Optional: auto reset on page load
+  window.onload = () => {
+    resetScene();
+  };
+</script>
+</body>
+</html>
