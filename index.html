@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D Tornado Simulator</title>
+<style>
+  body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+  #controls {
+    position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.9);
+    padding: 10px; border-radius: 8px; z-index: 10; max-width: 200px;
+  }
+  #controls input { width: 150px; }
+  button { margin: 5px 0; padding: 5px 10px; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <label>Wind Speed (up to 331 mph): <span id="windValue">50</span></label><br />
+  <input type="range" id="windSlider" min="10" max="331" value="50" /><br />
+  <label>Tornado Width (max ~2.6 miles): <span id="widthValue">50</span></label><br />
+  <input type="range" id="widthSlider" min="10" max="250" value="50" /><br />
+  <button id="startBtn">Start</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<!-- Include Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script>
+let scene, camera, renderer;
+let tornado, debrisGroup, structures = [], debrisParticles = [];
+let tornadoSpeed = 0.5; // control movement speed
+let animating = false;
+
+// UI controls
+const windSlider = document.getElementById("windSlider");
+const widthSlider = document.getElementById("widthSlider");
+const windValue = document.getElementById("windValue");
+const widthValue = document.getElementById("widthValue");
+const startBtn = document.getElementById("startBtn");
+const resetBtn = document.getElementById("resetBtn");
+
+windSlider.oninput = () => (windValue.textContent = windSlider.value);
+widthSlider.oninput = () => {
+  widthValue.textContent = widthSlider.value;
+  if (tornado) {
+    let scale = widthSlider.value / 50;
+    tornado.scale.set(scale, scale, scale);
+  }
+};
+
+// Initialize scene
+init();
+animate();
+
+function init() {
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0xf0f0f0, 50, 300);
+  
+  // Camera
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+  camera.position.set(0, 300, 600);
+  camera.lookAt(0, 0, 0);
+
+  // Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // Lights
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(-100, 200, 100);
+  scene.add(dirLight);
+
+  // Large ground plane
+  const groundGeo = new THREE.PlaneGeometry(10000, 10000);
+  const groundMat = new THREE.MeshPhongMaterial({ color: 0x88cc88 });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  // Tornado (upright cylinder, flipped to stand upright)
+  const tolGeo = new THREE.CylinderGeometry(10, 10, 100, 32, 1, true);
+  const tolMat = new THREE.MeshStandardMaterial({ color: 0x555555, transparent: true, opacity: 0.8 });
+  tornado = new THREE.Mesh(tolGeo, tolMat);
+  tornado.position.set(-400, 50, 0); // start at one end
+  scene.add(tornado);
+  tornado.scale.set(1,1,1);
+
+  // Generate many structures across large scene
+  for (let i=0; i<50; i++) {
+    let x = (Math.random() - 0.5) * 8000;
+    let z = (Math.random() - 0.5) * 8000;
+    if (Math.random() > 0.4) {
+      // house
+      let geo = new THREE.BoxGeometry(20, 15, 20);
+      let mat = new THREE.MeshStandardMaterial({ color: 0xa0522d });
+      let house = new THREE.Mesh(geo, mat);
+      house.position.set(x, 7.5, z);
+      house.userData = { damaged: false };
+      scene.add(house);
+      structures.push(house);
+    } else {
+      // tree
+      let geoTrunk = new THREE.CylinderGeometry(2,2,8);
+      let matTrunk = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+      let trunk = new THREE.Mesh(geoTrunk, matTrunk);
+      let geoLeaf = new THREE.ConeGeometry(6, 12);
+      let matLeaf = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+      let leaf = new THREE.Mesh(geoLeaf, matLeaf);
+      let tree = new THREE.Group();
+      trunk.position.y=4;
+      leaf.position.y=10;
+      tree.add(trunk);
+      tree.add(leaf);
+      tree.position.set(x,4,z);
+      scene.add(tree);
+      structures.push(tree);
+    }
+  }
+
+  // Debris particles
+  debrisGroup = new THREE.Group();
+  scene.add(debrisGroup);
+  for (let i=0; i<300; i++) {
+    let geo = new THREE.SphereGeometry(0.5,8,8);
+    let mat = new THREE.MeshStandardMaterial({ color:0x888888 });
+    let d = new THREE.Mesh(geo,mat);
+    d.position.set(
+      (Math.random() - 0.5)*9000,
+      Math.random()*200,
+      (Math.random() - 0.5)*9000
+    );
+    d.userData = { velocity: new THREE.Vector3() };
+    debrisGroup.add(d);
+    debrisParticles.push(d);
+  }
+
+  // Controls
+  document.getElementById('startBtn').onclick = () => {
+    if (!animating) {
+      resetStructures();
+      animating=true;
+    }
+  };
+  document.getElementById('resetBtn').onclick = () => {
+    animating=false;
+    resetStructures();
+    debrisParticles.forEach(d => {
+      d.position.set(
+        (Math.random() - 0.5)*9000,
+        Math.random()*200,
+        (Math.random() - 0.5)*9000
+      );
+      d.userData.velocity.set(0,0,0);
+    });
+  };
+}
+
+function resetStructures() {
+  structures.forEach(s => {
+    s.userData.damaged=false;
+    if (s.material) {
+      s.material.color.set(s.material.color.getHex()); // reset
+      s.material.opacity=1;
+      s.material.transparent=false;
+    } else {
+      s.children.forEach(c => c.material.color.set(c.material.color.getHex()));
+    }
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (animating) {
+    // move tornado forward
+    tornado.position.x += (windSlider.value/50) * tornadoSpeed;
+    // rotate tornado
+    tornado.rotation.y += 0.05;
+    
+    // Random procedural damage at points
+    if (Math.random() < 0.02) {
+      let target = structures[Math.floor(Math.random()*structures.length)];
+      if (target && !target.userData.damaged) {
+        target.userData.damaged=true;
+        if (target.material) {
+          target.material.color.set(0x555555);
+          target.material.opacity=0.4;
+        } else {
+          target.children.forEach(c => c.material.color.set(0x555555));
+        }
+      }
+    }
+    // Damage structures close to tornado
+    structures.forEach(s => {
+      let dx = s.position.x - tornado.position.x;
+      if (Math.abs(dx)<15 && !s.userData.damaged) {
+        s.userData.damaged=true;
+        if (s.material) {
+          s.material.color.set(0x555555);
+          s.material.opacity=0.4;
+        } else {
+          s.children.forEach(c => c.material.color.set(0x555555));
+        }
+      }
+    });
+    // Debris sucked into tornado
+    debrisParticles.forEach(d => {
+      let dir = new THREE.Vector3().subVectors(tornado.position, d.position);
+      let dist = dir.length();
+      if (dist<300) {
+        dir.normalize();
+        d.userData.velocity.add(dir.multiplyScalar(0.2));
+        d.userData.velocity.y -= 0.005; // gravity effect
+        d.position.add(d.userData.velocity);
+        if (dist<1) {
+          d.position.copy(tornado.position);
+          d.userData.velocity.set(0,0,0);
+        }
+      } else {
+        // drift randomly
+        d.position.x += (Math.random()-0.5)*0.2;
+        d.position.z += (Math.random()-0.5)*0.2;
+        d.position.y += (Math.random()-0.5)*0.2;
+      }
+    });
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+</script>
+</body>
+</html>
