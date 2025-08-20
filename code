@@ -8,7 +8,7 @@
   body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
   #controls {
     position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.9);
-    padding: 10px; border-radius: 8px; z-index: 10; max-width: 220px;
+    padding: 10px; border-radius: 8px; z-index: 10; max-width: 250px;
   }
   #controls input { width: 160px; }
   button { margin: 5px 0; padding: 5px 10px; }
@@ -43,6 +43,7 @@ let windSpeed = 50;
 let tornadoSpeed = 20;
 let tornadoWidth = 50;
 let performanceMode = true;
+let lightningCooldown = 0;
 
 // UI Elements
 const windSlider = document.getElementById("windSlider");
@@ -132,24 +133,31 @@ function setupSceneObjects(){
 
   // Houses
   for(let i=0;i<houseCount;i++){
-    let house = new THREE.Mesh(new THREE.BoxGeometry(20,15,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
-    house.position.set((Math.random()-0.5)*1500,7.5,(Math.random()-0.5)*1500);
-    house.userData.damaged=false;
+    let house = new THREE.Group();
+    let base = new THREE.Mesh(new THREE.BoxGeometry(20,10,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
+    let roof = new THREE.Mesh(new THREE.ConeGeometry(15,6,4), new THREE.MeshStandardMaterial({color:0x8b0000}));
+    roof.position.y=8;
+    house.add(base);
+    house.add(roof);
+    house.position.set((Math.random()-0.5)*1500,5,(Math.random()-0.5)*1500);
+    house.userData.original = {pos: house.position.clone(), rotation: house.rotation.clone(), children: house.children.map(c=>c.clone())};
+    house.userData.damagedParts = [];
     scene.add(house);
     houses.push(house);
   }
 
-  // Trees (cones + trunk)
+  // Trees
   for(let i=0;i<treeCount;i++){
     let trunk = new THREE.Mesh(new THREE.CylinderGeometry(1,1,5,6), new THREE.MeshStandardMaterial({color:0x8b4513}));
     let leaves = new THREE.Mesh(new THREE.ConeGeometry(3,10,8), new THREE.MeshStandardMaterial({color:0x228B22}));
     let tree = new THREE.Group();
-    trunk.position.y = 2.5;
-    leaves.position.y = 8;
+    trunk.position.y=2.5;
+    leaves.position.y=8;
     tree.add(trunk);
     tree.add(leaves);
     tree.position.set((Math.random()-0.5)*1500,0,(Math.random()-0.5)*1500);
-    tree.userData.damaged=false;
+    tree.userData.original = {pos: tree.position.clone(), children: tree.children.map(c=>c.clone())};
+    tree.userData.damagedParts=[];
     scene.add(tree);
     trees.push(tree);
   }
@@ -166,8 +174,25 @@ function setupSceneObjects(){
 
 // Reset
 function resetStructures(){
-  houses.forEach(h=>{h.userData.damaged=false;h.material.color.set(0xa0522d);});
-  trees.forEach(t=>{t.userData.damaged=false; t.children.forEach(c=>c.material.color.set(c.geometry.type==="ConeGeometry"?0x228B22:0x8b4513));});
+  houses.forEach(h=>{
+    h.position.copy(h.userData.original.pos);
+    h.rotation.copy(h.userData.original.rotation);
+    h.children.forEach((c,i)=>{
+      let original = h.userData.original.children[i];
+      c.geometry.copy(original.geometry);
+      c.material.color.copy(original.material.color);
+    });
+    h.userData.damagedParts=[];
+  });
+  trees.forEach(t=>{
+    t.position.copy(t.userData.original.pos);
+    t.children.forEach((c,i)=>{
+      let original = t.userData.original.children[i];
+      c.geometry.copy(original.geometry);
+      c.material.color.copy(original.material.color);
+    });
+    t.userData.damagedParts=[];
+  });
 }
 function resetDebris(){
   debrisParticles.forEach(d=>{
@@ -177,7 +202,6 @@ function resetDebris(){
 }
 
 // Animate
-let lightningCooldown=0;
 function animate(){
   requestAnimationFrame(animate);
 
@@ -186,29 +210,34 @@ function animate(){
     tornado.position.x += tornadoSpeed;
     tornado.rotation.y += 0.05;
 
-    // Procedural destruction for houses
+    // Houses damage (randomized roof/chunk removal)
     houses.forEach(h=>{
-      if(!h.userData.damaged){
-        let dist = h.position.distanceTo(tornado.position);
-        if(dist < tornadoWidth*2){
-          h.userData.damaged=true;
-          h.material.color.set(0x555555);
-          h.position.y -= 0.1; // sinking effect
-        }
+      let dist = h.position.distanceTo(tornado.position);
+      if(dist < tornadoWidth*2){
+        let chance = Math.random()*windSpeed;
+        h.children.forEach(c=>{
+          if(chance > 40 && !h.userData.damagedParts.includes(c)){
+            c.position.y -= Math.random()*1; // deform downward
+            c.rotation.x += (Math.random()-0.5)*0.3;
+            c.rotation.z += (Math.random()-0.5)*0.3;
+            h.userData.damagedParts.push(c);
+          }
+        });
       }
     });
 
-    // Trees destruction
+    // Trees damage (branches/leaves bending or removing)
     trees.forEach(t=>{
-      if(!t.userData.damaged){
-        let dist = t.position.distanceTo(tornado.position);
-        if(dist < tornadoWidth*2){
-          t.userData.damaged=true;
-          t.children.forEach(c=>{
-            if(c.geometry.type==="ConeGeometry") c.material.color.set(0x444444);
-            else c.material.color.set(0x222222);
-          });
-        }
+      let dist = t.position.distanceTo(tornado.position);
+      if(dist < tornadoWidth*2){
+        let chance = Math.random()*windSpeed;
+        t.children.forEach(c=>{
+          if(chance > 30 && !t.userData.damagedParts.includes(c)){
+            c.rotation.x += (Math.random()-0.5)*0.5;
+            c.rotation.z += (Math.random()-0.5)*0.5;
+            t.userData.damagedParts.push(c);
+          }
+        });
       }
     });
 
@@ -229,10 +258,13 @@ function animate(){
     lightningCooldown--;
     if(lightningCooldown<=0 && Math.random()<0.01){
       lightningCooldown = 60 + Math.random()*100;
-      let flash = Math.random()*2 + 1;
-      scene.background = new THREE.Color(0x87ceeb);
+      scene.background = new THREE.Color(0xffffff); // flash
       setTimeout(()=>{scene.background = new THREE.Color(0x87ceeb);},50);
     }
+
+    // Supercell & wall cloud (simplified)
+    supercell.position.set(tornado.position.x,120,tornado.position.z);
+    wallCloud.position.set(tornado.position.x,100,tornado.position.z);
   }
 
   renderer.render(scene,camera);
