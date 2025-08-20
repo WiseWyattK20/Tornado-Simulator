@@ -1,303 +1,234 @@
-<!DOCTYPE ht
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Tornado Simulator</title>
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    background-color: #eef;
-    margin: 0;
-    overflow: hidden;
-  }
-
-  #controls {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: #fff;
-    padding: 10px;
-    border-radius: 8px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.3);
-    z-index: 10;
-  }
-
-  #controls input {
-    width: 150px;
-    margin: 5px 0;
-  }
-
-  #scene {
-    width: 100%;
-    height: 100vh;
-    position: relative;
-    perspective: 1000px;
-    overflow: hidden;
-  }
-
-  /* Tornado styling */
-  #tornado {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 50px;
-    height: 200px;
-    background: linear-gradient(#555, #222);
-    border-radius: 25px;
-    transform-origin: bottom center;
-    transform: scaleX(1);
-    transition: all 0.2s ease;
-    box-shadow: 0 0 20px rgba(255,255,255,0.7);
-  }
-
-  /* Structures styling */
-  .structure {
-    position: absolute;
-    bottom: 0;
-    width: 50px;
-    height: 50px;
-    background-color: #8B4513; /* default for house */
-    border: 2px solid #333;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    transition: all 0.3s ease;
-  }
-
-  /* House */
-  #house {
-    left: 100px;
-    background-color: #a0522d;
-    width: 60px;
-    height: 60px;
-    border-radius: 4px;
-  }
-
-  /* Trees */
-  #tree1 {
-    left: 300px;
-    background-color: #228b22;
-    width: 20px;
-    height: 80px;
-    border-radius: 3px;
-  }
-
-  #tree2 {
-    left: 400px;
-    background-color: #228b22;
-    width: 20px;
-    height: 80px;
-    border-radius: 3px;
-  }
-
-  /* Damage styles */
-  .damaged {
-    opacity: 0.3;
-    background-color: #555;
-  }
-
-  /* Moving tornado */
-  @keyframes moveTornado {
-    from { left: 0; }
-    to { left: calc(100% - 50px); }
-  }
-
-  /* Button styles */
-  button {
-    margin: 5px 0;
-    padding: 5px 10px;
-    font-size: 14px;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  <title>3D Tornado Simulator</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #eef;
+      font-family: Arial, sans-serif;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      z-index: 10;
+    }
+    #controls input {
+      width: 150px;
+      margin: 5px 0;
+    }
+    button {
+      display: block;
+      margin: 5px 0;
+      padding: 5px 10px;
+      font-size: 14px;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
 </head>
 <body>
-
-<div id="controls">
-  <div>
-    <label>Wind Speed: <span id="windValue">50</span></label><br/>
-    <input type="range" id="windSlider" min="10" max="100" value="50" />
+  <div id="controls">
+    <label>Wind Speed: <span id="windValue">50</span></label><br />
+    <input type="range" id="windSlider" min="10" max="100" value="50" /><br />
+    <label>Tornado Width: <span id="widthValue">50</span></label><br />
+    <input
+      type="range"
+      id="widthSlider"
+      min="30"
+      max="150"
+      value="50"
+    /><br />
+    <button id="startBtn">Start</button>
+    <button id="resetBtn">Reset</button>
   </div>
-  <div>
-    <label>Tornado Width: <span id="widthValue">50</span></label><br/>
-    <input type="range" id="widthSlider" min="30" max="150" value="50" />
-  </div>
-  <button id="startBtn">Start</button>
-  <button id="resetBtn">Reset</button>
-</div>
 
-<div id="scene">
-  <!-- Tornado -->
-  <div id="tornado"></div>
+  <!-- three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer;
+    let tornado, house, trees = [];
+    let tornadoSpeed = 0.1;
+    let animating = false;
+    let windSlider = document.getElementById("windSlider");
+    let widthSlider = document.getElementById("widthSlider");
+    let windValue = document.getElementById("windValue");
+    let widthValue = document.getElementById("widthValue");
+    let startBtn = document.getElementById("startBtn");
+    let resetBtn = document.getElementById("resetBtn");
 
-  <!-- Structures -->
-  <div id="house" class="structure"></div>
-  <div id="tree1" class="structure"></div>
-  <div id="tree2" class="structure"></div>
-</div>
-
-<script>
-  const tornado = document.getElementById('tornado');
-  const scene = document.getElementById('scene');
-  const startBtn = document.getElementById('startBtn');
-  const resetBtn = document.getElementById('resetBtn');
-
-  const windSlider = document.getElementById('windSlider');
-  const widthSlider = document.getElementById('widthSlider');
-  const windValueLabel = document.getElementById('windValue');
-  const widthValueLabel = document.getElementById('widthValue');
-
-  const house = document.getElementById('house');
-  const tree1 = document.getElementById('tree1');
-  const tree2 = document.getElementById('tree2');
-
-  let animationId = null;
-  let tornadoMoving = false;
-
-  // Update labels
-  windSlider.addEventListener('input', () => {
-    windValueLabel.textContent = windSlider.value;
-  });
-  widthSlider.addEventListener('input', () => {
-    widthValueLabel.textContent = widthSlider.value;
-    updateTornadoSize();
-  });
-
-  function updateTornadoSize() {
-    const width = parseInt(widthSlider.value);
-    tornado.style.width = width + 'px';
-  }
-
-  // Reset scene
-  function resetScene() {
-    if (animationId) {
-      cancelAnimationFrame(animationId);
-      animationId = null;
-    }
-    // Reset tornado position
-    tornado.style.left = '0px';
-    // Reset structure states
-    house.classList.remove('damaged');
-    house.style.opacity = 1;
-    house.style.backgroundColor = '#a0522d';
-
-    tree1.classList.remove('damaged');
-    tree1.style.opacity = 1;
-    tree1.style.backgroundColor = '#228b22';
-
-    tree2.classList.remove('damaged');
-    tree2.style.opacity = 1;
-    tree2.style.backgroundColor = '#228b22';
-
-    // Reset tornado size
-    updateTornadoSize();
-  }
-
-  // Damage calculation based on wind speed
-  function damageLevel(windSpeed) {
-    if (windSpeed > 80) return 'high';
-    if (windSpeed > 50) return 'medium';
-    return 'low';
-  }
-
-  // Damage structures based on tornado width and wind speed
-  function damageStructures() {
-    const windSpeed = parseInt(windSlider.value);
-    const width = parseInt(widthSlider.value);
-    const damageFactor = damageLevel(windSpeed);
-
-    // Damage probability
-    let damageProb;
-    if (damageFactor === 'high') damageProb = 0.9;
-    else if (damageFactor === 'medium') damageProb = 0.6;
-    else damageProb = 0.3;
-
-    // Damage to house
-    if (Math.random() < damageProb) {
-      house.classList.add('damaged');
-      house.style.opacity = 0.3;
-      house.style.backgroundColor = '#555';
-    }
-
-    // Damage to trees
-    [tree1, tree2].forEach(tree => {
-      if (Math.random() < damageProb) {
-        tree.classList.add('damaged');
-        tree.style.opacity = 0.3;
-        tree.style.backgroundColor = '#555';
+    windSlider.oninput = () => (windValue.textContent = windSlider.value);
+    widthSlider.oninput = () => {
+      widthValue.textContent = widthSlider.value;
+      if (tornado) {
+        let scale = widthSlider.value / 50;
+        tornado.scale.set(scale, 1, scale);
       }
-    });
-  }
+    };
 
-  // Animate tornado
-  function startTornado() {
-    if (tornadoMoving) return; // prevent multiple starts
-    tornadoMoving = true;
+    function init() {
+      // Scene and Camera
+      scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0xeef, 20, 100);
+      camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        500
+      );
+      camera.position.set(0, 30, 80);
+      camera.lookAt(0, 0, 0);
 
-    const sceneWidth = scene.clientWidth;
-    const tornadoWidth = parseInt(tornado.style.width);
-    let position = 0;
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
 
-    function move() {
-      if (position + tornadoWidth >= sceneWidth) {
-        cancelAnimationFrame(animationId);
-        tornadoMoving = false;
-        return;
+      // Lights
+      let hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      hemi.position.set(0, 100, 0);
+      scene.add(hemi);
+
+      let dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(-10, 50, 30);
+      scene.add(dir);
+
+      // Ground
+      let groundMat = new THREE.MeshPhongMaterial({ color: 0x88cc88 });
+      let groundGeo = new THREE.PlaneGeometry(200, 200);
+      let ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      // Tornado (cylinder)
+      let tolGeo = new THREE.CylinderGeometry(5, 20, 50, 32, 1, true);
+      let tolMat = new THREE.MeshStandardMaterial({
+        color: 0x555555,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+      });
+      tornado = new THREE.Mesh(tolGeo, tolMat);
+      tornado.position.set(-80, 25, 0);
+      scene.add(tornado);
+
+      // House (box)
+      let houseGeo = new THREE.BoxGeometry(12, 8, 12);
+      let houseMat = new THREE.MeshStandardMaterial({ color: 0xa0522d });
+      house = new THREE.Mesh(houseGeo, houseMat);
+      house.position.set(0, 4, -20);
+      scene.add(house);
+
+      // Trees (cylinder trunk + cone foliage)
+      for (let i = 0; i < 2; i++) {
+        let trunkGeo = new THREE.CylinderGeometry(1.5, 1.5, 10, 8);
+        let trunkMat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+        let trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        let leafGeo = new THREE.ConeGeometry(6, 15, 8);
+        let leafMat = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+        let leaf = new THREE.Mesh(leafGeo, leafMat);
+        leaf.position.y = 12;
+
+        let tree = new THREE.Group();
+        tree.add(trunk);
+        tree.add(leaf);
+        tree.position.set(20 + i * 20, 5, 20);
+        scene.add(tree);
+        trees.push(tree);
       }
-      position += 2; // speed of movement
-      tornado.style.left = position + 'px';
 
-      // Check for collision with structures
-      checkCollision();
-
-      animationId = requestAnimationFrame(move);
+      window.addEventListener("resize", onWindowResize);
     }
 
-    move();
-  }
-
-  function checkCollision() {
-    const tornadoRect = tornado.getBoundingClientRect();
-
-    // Check house
-    const houseRect = house.getBoundingClientRect();
-    if (rectsOverlap(tornadoRect, houseRect) && !house.classList.contains('damaged')) {
-      damageStructures();
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Check trees
-    [tree1, tree2].forEach(tree => {
-      const treeRect = tree.getBoundingClientRect();
-      if (rectsOverlap(tornadoRect, treeRect) && !tree.classList.contains('damaged')) {
-        damageStructures();
+    function animate() {
+      requestAnimationFrame(animate);
+      // rotate tornado
+      tornado.rotation.y += 0.2;
+
+      // move tornado if animating
+      if (animating) {
+        tornado.position.x += tornadoSpeed * (windSlider.value / 50);
+        checkCollision();
+        // stop when past scene
+        if (tornado.position.x > 100) animating = false;
       }
-    });
-  }
 
-  function rectsOverlap(r1, r2) {
-    return !(r2.left > r1.right || 
-             r2.right < r1.left || 
-             r2.top > r1.bottom || 
-             r2.bottom < r1.top);
-  }
+      renderer.render(scene, camera);
+    }
 
-  // Event listeners
-  document.getElementById('startBtn').addEventListener('click', () => {
-    startTornado();
-  });
+    function damageLevel(ws) {
+      if (ws > 80) return 0.9;
+      if (ws > 50) return 0.6;
+      return 0.3;
+    }
 
-  document.getElementById('resetBtn').addEventListener('click', () => {
-    resetScene();
-  });
+    function checkCollision() {
+      let prob = damageLevel(+windSlider.value);
+      // house
+      if (!house.userData.damaged && Math.abs(tornado.position.x - house.position.x) < 10) {
+        if (Math.random() < prob) {
+          house.userData.damaged = true;
+          house.material.color.set(0x555555);
+          house.material.opacity = 0.4;
+          house.material.transparent = true;
+        }
+      }
+      // trees
+      trees.forEach((t) => {
+        if (!t.userData.damaged && Math.abs(tornado.position.x - t.position.x) < 8) {
+          if (Math.random() < prob) {
+            t.userData.damaged = true;
+            t.children[1].material.color.set(0x555555);
+            t.children[0].material.color.set(0x333333);
+          }
+        }
+      });
+    }
 
-  // Initialize size
-  updateTornadoSize();
+    function start() {
+      if (animating) return;
+      animating = true;
+      tornado.position.x = -80;
+      // reset damaged flags
+      house.userData.damaged = false;
+      house.material.color.set(0xa0522d);
+      house.material.transparent = false;
+      trees.forEach((t) => {
+        t.userData.damaged = false;
+        t.children[1].material.color.set(0x228b22);
+        t.children[0].material.color.set(0x8b4513);
+      });
+    }
 
-  // Optional: auto reset on page load
-  window.onload = () => {
-    resetScene();
-  };
-</script>
+    // wire up buttons
+    startBtn.onclick = start;
+    resetBtn.onclick = () => {
+      animating = false;
+      tornado.position.x = -80;
+      start(); // resets damage
+      animating = false;
+    };
+
+    // kick things off
+    init();
+    animate();
+  </script>
 </body>
 </html>
