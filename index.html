@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  <title>3D Tornado Simulator</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #eef;
+      font-family: Arial, sans-serif;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      z-index: 10;
+    }
+    #controls input {
+      width: 150px;
+      margin: 5px 0;
+    }
+    button {
+      display: block;
+      margin: 5px 0;
+      padding: 5px 10px;
+      font-size: 14px;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Wind Speed: <span id="windValue">50</span></label><br />
+    <input type="range" id="windSlider" min="10" max="100" value="50" /><br />
+    <label>Tornado Width: <span id="widthValue">50</span></label><br />
+    <input
+      type="range"
+      id="widthSlider"
+      min="30"
+      max="150"
+      value="50"
+    /><br />
+    <button id="startBtn">Start</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <!-- three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer;
+    let tornado, house, trees = [];
+    let tornadoSpeed = 0.1;
+    let animating = false;
+    let windSlider = document.getElementById("windSlider");
+    let widthSlider = document.getElementById("widthSlider");
+    let windValue = document.getElementById("windValue");
+    let widthValue = document.getElementById("widthValue");
+    let startBtn = document.getElementById("startBtn");
+    let resetBtn = document.getElementById("resetBtn");
+
+    windSlider.oninput = () => (windValue.textContent = windSlider.value);
+    widthSlider.oninput = () => {
+      widthValue.textContent = widthSlider.value;
+      if (tornado) {
+        let scale = widthSlider.value / 50;
+        tornado.scale.set(scale, 1, scale);
+      }
+    };
+
+    function init() {
+      // Scene and Camera
+      scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0xeef, 20, 100);
+      camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        500
+      );
+      camera.position.set(0, 30, 80);
+      camera.lookAt(0, 0, 0);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // Lights
+      let hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      hemi.position.set(0, 100, 0);
+      scene.add(hemi);
+
+      let dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(-10, 50, 30);
+      scene.add(dir);
+
+      // Ground
+      let groundMat = new THREE.MeshPhongMaterial({ color: 0x88cc88 });
+      let groundGeo = new THREE.PlaneGeometry(200, 200);
+      let ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      // Tornado (cylinder)
+      let tolGeo = new THREE.CylinderGeometry(5, 20, 50, 32, 1, true);
+      let tolMat = new THREE.MeshStandardMaterial({
+        color: 0x555555,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+      });
+      tornado = new THREE.Mesh(tolGeo, tolMat);
+      tornado.position.set(-80, 25, 0);
+      scene.add(tornado);
+
+      // House (box)
+      let houseGeo = new THREE.BoxGeometry(12, 8, 12);
+      let houseMat = new THREE.MeshStandardMaterial({ color: 0xa0522d });
+      house = new THREE.Mesh(houseGeo, houseMat);
+      house.position.set(0, 4, -20);
+      scene.add(house);
+
+      // Trees (cylinder trunk + cone foliage)
+      for (let i = 0; i < 2; i++) {
+        let trunkGeo = new THREE.CylinderGeometry(1.5, 1.5, 10, 8);
+        let trunkMat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+        let trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        let leafGeo = new THREE.ConeGeometry(6, 15, 8);
+        let leafMat = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+        let leaf = new THREE.Mesh(leafGeo, leafMat);
+        leaf.position.y = 12;
+
+        let tree = new THREE.Group();
+        tree.add(trunk);
+        tree.add(leaf);
+        tree.position.set(20 + i * 20, 5, 20);
+        scene.add(tree);
+        trees.push(tree);
+      }
+
+      window.addEventListener("resize", onWindowResize);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // rotate tornado
+      tornado.rotation.y += 0.2;
+
+      // move tornado if animating
+      if (animating) {
+        tornado.position.x += tornadoSpeed * (windSlider.value / 50);
+        checkCollision();
+        // stop when past scene
+        if (tornado.position.x > 100) animating = false;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function damageLevel(ws) {
+      if (ws > 80) return 0.9;
+      if (ws > 50) return 0.6;
+      return 0.3;
+    }
+
+    function checkCollision() {
+      let prob = damageLevel(+windSlider.value);
+      // house
+      if (!house.userData.damaged && Math.abs(tornado.position.x - house.position.x) < 10) {
+        if (Math.random() < prob) {
+          house.userData.damaged = true;
+          house.material.color.set(0x555555);
+          house.material.opacity = 0.4;
+          house.material.transparent = true;
+        }
+      }
+      // trees
+      trees.forEach((t) => {
+        if (!t.userData.damaged && Math.abs(tornado.position.x - t.position.x) < 8) {
+          if (Math.random() < prob) {
+            t.userData.damaged = true;
+            t.children[1].material.color.set(0x555555);
+            t.children[0].material.color.set(0x333333);
+          }
+        }
+      });
+    }
+
+    function start() {
+      if (animating) return;
+      animating = true;
+      tornado.position.x = -80;
+      // reset damaged flags
+      house.userData.damaged = false;
+      house.material.color.set(0xa0522d);
+      house.material.transparent = false;
+      trees.forEach((t) => {
+        t.userData.damaged = false;
+        t.children[1].material.color.set(0x228b22);
+        t.children[0].material.color.set(0x8b4513);
+      });
+    }
+
+    // wire up buttons
+    startBtn.onclick = start;
+    resetBtn.onclick = () => {
+      animating = false;
+      tornado.position.x = -80;
+      start(); // resets damage
+      animating = false;
+    };
+
+    // kick things off
+    init();
+    animate();
+  </script>
+</body>
+</html>
