@@ -38,7 +38,7 @@
 let scene, camera, renderer, controls;
 let tornado, tornadoParticles = [], debrisGroup = [], debrisParticles = [];
 let houses = [], trees = [], roads = [], streetLights = [], powerLines = [], shelters = [];
-let wallCloud, funnelCloud, stormBase;
+let wallCloud, funnelCloud, stormBase, dustParticles = [];
 let animating = false;
 let windSpeed = 50;
 let tornadoWidth = 0.05;
@@ -146,6 +146,7 @@ function setupSceneObjects(){
   streetLights.forEach(l=>scene.remove(l)); streetLights=[];
   powerLines.forEach(p=>scene.remove(p)); powerLines=[];
   shelters.forEach(s=>scene.remove(s)); shelters=[];
+  dustParticles.forEach(d=>scene.remove(d)); dustParticles=[];
 
   let houseCount = phoneMode?5:performanceMode?10:20;
   let treeCount = phoneMode?10:performanceMode?20:50;
@@ -201,6 +202,14 @@ function setupSceneObjects(){
     d.userData.velocity = new THREE.Vector3();
     debrisGroup.add(d); debrisParticles.push(d);
   }
+
+  // Dust particles (detached from camera)
+  for(let i=0;i<100;i++){
+    let dust = new THREE.Mesh(new THREE.SphereGeometry(1,4,4), new THREE.MeshStandardMaterial({color:0xAAAAAA, transparent:true, opacity:0.5}));
+    dust.position.set((Math.random()-0.5)*1000,Math.random()*5,(Math.random()-0.5)*1000);
+    dust.userData.velocity = new THREE.Vector3();
+    scene.add(dust); dustParticles.push(dust);
+  }
 }
 
 function createDestructibleHouse(){
@@ -218,6 +227,7 @@ function resetScene(){
   houses.forEach(h=>h.userData.damagedParts=[]);
   trees.forEach(t=>t.userData.damagedParts=[]);
   debrisParticles.forEach(d=>d.userData.velocity.set(0,0,0));
+  dustParticles.forEach(d=>d.userData.velocity.set(0,0,0));
 }
 
 function updateEFRating(){
@@ -240,16 +250,14 @@ function animate(){
     tornado.position.x += (Math.random()-0.5)*2;
     tornado.position.z += (Math.random()-0.5)*2;
 
-    // Funnel cloud follows tornado
+    // Funnel cloud and wall cloud follow tornado
     funnelCloud.position.x = tornado.position.x;
     funnelCloud.position.z = tornado.position.z;
     funnelCloud.position.y = 180;
 
-    // Wall cloud follows tornado
     wallCloud.position.x = tornado.position.x;
     wallCloud.position.z = tornado.position.z;
 
-    // Storm base
     stormBase.position.x = tornado.position.x;
     stormBase.position.z = tornado.position.z;
 
@@ -303,6 +311,14 @@ function animate(){
       d.userData.velocity.add(dir.multiplyScalar(0.05*factor));
       d.userData.velocity.y -= 0.01;
       d.position.add(d.userData.velocity);
+    });
+
+    // Dust circulation around tornado
+    dustParticles.forEach(d=>{
+      let dir = new THREE.Vector3().subVectors(tornado.position,d.position).normalize();
+      d.userData.velocity.add(dir.multiplyScalar(0.01));
+      d.position.add(d.userData.velocity);
+      if(d.position.distanceTo(tornado.position)<10) d.position.x += (Math.random()-0.5)*50;
     });
 
     // Ground scour
