@@ -1,719 +1,269 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Advanced Tornado Simulator — All-in-one</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Advanced 3D Tornado Simulator</title>
 <style>
-  html,body{height:100%;margin:0;background:#666}
-  body{font-family:Arial,Helvetica,sans-serif;overflow:hidden}
-  #ui{
-    position: absolute; left: 10px; top: 10px; z-index: 80;
-    background: rgba(255,255,255,0.95); padding: 10px; border-radius: 8px; width: 320px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  body { margin:0; overflow:hidden; font-family: Arial, sans-serif; background:#888;}
+  #controls {
+    position:absolute; top:10px; left:10px; background: rgba(255,255,255,0.9);
+    padding:10px; border-radius:8px; z-index:10; max-width:250px;
   }
-  #ui input[type=range]{ width: 220px; }
-  #ui label{ font-size:13px; display:block; margin-top:6px; }
-  #ui button{ margin-top:8px; padding:6px 10px; }
-  #info { margin-top:8px; font-size:13px; }
+  #controls input { width:160px; }
+  button { margin:5px 0; padding:5px 10px; }
 </style>
 </head>
 <body>
-  <div id="ui" role="region" aria-label="Simulator controls">
-    <label>Wind Strength (mph): <span id="windVal">140</span></label>
-    <input id="wind" type="range" min="10" max="300" value="140">
-    <label>Tornado Speed (mph): <span id="speedVal">25</span></label>
-    <input id="speed" type="range" min="1" max="90" value="25">
-    <label>Tornado Width: <span id="widthVal">90</span></label>
-    <input id="width" type="range" min="20" max="360" value="90">
-    <label><input id="perf" type="checkbox"> Force Performance Mode</label>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button id="startBtn">Start (drop funnel)</button>
-      <button id="resetBtn">Reset</button>
-    </div>
-    <div id="info">
-      <div>Estimated strength by damage: <span id="estStrength">—</span> mph</div>
-      <div style="font-size:12px;color:#444">Shelter survival: some survive 218 mph, most survive 201 mph.</div>
-    </div>
-  </div>
+<div id="controls">
+  <label>Wind Speed (mph): <span id="windValue">50</span></label><br>
+  <input type="range" id="windSlider" min="10" max="200" value="50"><br>
+
+  <label>Tornado Speed (mph): <span id="speedValue">10</span></label><br>
+  <input type="range" id="speedSlider" min="1" max="90" value="10"><br>
+
+  <label>Tornado Width: <span id="widthValue">50</span></label><br>
+  <input type="range" id="widthSlider" min="10" max="250" value="50"><br>
+
+  <label>Performance Mode:</label> <input type="checkbox" id="perfToggle" checked><br>
+  <label>Phone Mode:</label> <input type="checkbox" id="phoneToggle"><br>
+
+  <button id="startBtn">Start</button>
+  <button id="resetBtn">Reset</button>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', ()=>{
-
-/* -----------------------
-   Basic config & state
-   ----------------------- */
-const MAP_SIZE = 2200;
 let scene, camera, renderer;
-let tornadoGroup, innerParticles;
-const tornadoStart = { x: -900, y: 340, z: 0 };
-let debrisGroup;
-let houses = [], trees = [], poles = [], cables = [], lights = [], debris = [], shelters = [];
-let roads = [];
-let animating = false, dropping = false;
-let wind = 140; // input wind strength (affects field, damage)
-let speedMph = 25;
-let widthVal = 90;
-let windRadius = 220;
-const DAMAGE_THRESHOLD = 75;
-let performanceMode = false;
-let lastTime = performance.now();
-let powerFlashes = [];
+let tornado, tornadoParticles = [], debrisGroup = [], debrisParticles = [];
+let houses = [], trees = [], roads = [], streetLights = [], powerLines = [];
+let animating = false;
+let windSpeed = 50;
+let tornadoSpeed = 10;
+let tornadoWidth = 50;
+let performanceMode = true;
+let phoneMode = false;
+let ground;
+let lightningCooldown = 0;
 
-const windSlider = document.getElementById('wind');
-const speedSlider = document.getElementById('speed');
-const widthSlider = document.getElementById('width');
-const windValEl = document.getElementById('windVal');
-const speedValEl = document.getElementById('speedVal');
-const widthValEl = document.getElementById('widthVal');
-const perfCheckbox = document.getElementById('perf');
-const startBtn = document.getElementById('startBtn');
-const resetBtn = document.getElementById('resetBtn');
-const estStrengthEl = document.getElementById('estStrength');
+// UI Elements
+const windSlider = document.getElementById("windSlider");
+const speedSlider = document.getElementById("speedSlider");
+const widthSlider = document.getElementById("widthSlider");
+const windValue = document.getElementById("windValue");
+const speedValue = document.getElementById("speedValue");
+const widthValue = document.getElementById("widthValue");
+const perfToggle = document.getElementById("perfToggle");
+const phoneToggle = document.getElementById("phoneToggle");
 
-windSlider.addEventListener('input', ()=>{ wind = Number(windSlider.value); windValEl.textContent = wind; updateWindRadius(); paintScour(); });
-speedSlider.addEventListener('input', ()=>{ speedMph = Number(speedSlider.value); speedValEl.textContent = speedMph; });
-widthSlider.addEventListener('input', ()=>{ widthVal = Number(widthSlider.value); widthValEl.textContent = widthVal; adjustTornadoScale(); updateWindRadius(); paintScour(); });
-perfCheckbox.addEventListener('change', ()=>{ performanceMode = perfCheckbox.checked; rebuildMap(); createTornado(); });
+windSlider.oninput = ()=> { windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); };
+speedSlider.oninput = ()=> { speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value)/1; };
+widthSlider.oninput = ()=> { widthValue.textContent = widthSlider.value; tornadoWidth = Number(widthSlider.value); tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
+perfToggle.onchange = ()=> { performanceMode = perfToggle.checked; setupSceneObjects(); };
+phoneToggle.onchange = ()=> { phoneMode = phoneToggle.checked; setupSceneObjects(); };
 
-startBtn.addEventListener('click', startDrop);
-resetBtn.addEventListener('click', resetAll);
-
-/* Auto detect low memory/mobile to enable performance mode */
-(function detectPerf(){
-  const mem = navigator.deviceMemory || 4;
-  const ua = navigator.userAgent || '';
-  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
-  if(mem <= 2 || isMobile){ performanceMode = true; perfCheckbox.checked = true; }
-})();
-
-/* -----------------------
-   Init scene
-   ----------------------- */
-function init(){
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x8b8b8b); // neutral gray sky (scene background only)
-
-  camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 8000);
-  camera.position.set(0, 260, 700);
-  camera.lookAt(0, 60, 0);
-
-  renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(performanceMode ? Math.min(window.devicePixelRatio||1,1) : Math.min(window.devicePixelRatio||1.5,2));
-  document.body.appendChild(renderer.domElement);
-
-  const hemi = new THREE.HemisphereLight(0x7a7a7a, 0x222222, 0.9);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffffff, 0.4);
-  sun.position.set(-200,300,200);
-  scene.add(sun);
-
-  // ground
-  const groundMat = new THREE.MeshPhongMaterial({ color: 0x2c522c });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE), groundMat);
-  ground.rotation.x = -Math.PI/2;
-  scene.add(ground);
-
-  // scour overlay canvas on ground
-  createScourCanvas();
-
-  // debris group
-  debrisGroup = new THREE.Group();
-  scene.add(debrisGroup);
-
-  // tornado visuals
-  createTornado();
-
-  // build initial map
-  rebuildMap();
-
-  window.addEventListener('resize', onResize);
-}
-
-function onResize(){
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-}
-
-/* -----------------------
-   Scour canvas (ground texture) - object-local (applied to ground) not camera
-   ----------------------- */
-let scourCanvas, scourTexture, scourMesh;
-function createScourCanvas(){
-  const SIZE = 2048;
-  scourCanvas = document.createElement('canvas');
-  scourCanvas.width = scourCanvas.height = SIZE;
-  const ctx = scourCanvas.getContext('2d');
-  ctx.fillStyle = '#2c522c';
-  ctx.fillRect(0,0,SIZE,SIZE);
-  scourTexture = new THREE.CanvasTexture(scourCanvas);
-  const mat = new THREE.MeshBasicMaterial({ map: scourTexture, transparent: true, opacity: 1, depthWrite:false });
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE), mat);
-  plane.rotation.x = -Math.PI/2;
-  plane.position.y = 0.01;
-  scene.add(plane);
-  scourMesh = plane;
-}
-function paintScour(){
-  if(!scourCanvas) return;
-  const ctx = scourCanvas.getContext('2d');
-  // fade overlay so scour accumulates but not permanently blots everything
-  ctx.fillStyle = 'rgba(44,82,44,0.04)';
-  ctx.fillRect(0,0,scourCanvas.width, scourCanvas.height);
-  const mapSize = MAP_SIZE;
-  const cx = (scourCanvas.width/2) + (tornadoGroup.position.x / mapSize) * scourCanvas.width;
-  const cy = (scourCanvas.height/2) - (tornadoGroup.position.z / mapSize) * scourCanvas.height;
-  const baseRadius = Math.max(70, (windRadius / mapSize) * scourCanvas.width * (1 + wind / 160));
-  const innerAlpha = Math.min(0.95, (wind / 300) * 1.6);
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius);
-  grad.addColorStop(0, `rgba(65,36,10,${innerAlpha})`);
-  grad.addColorStop(0.4, `rgba(90,58,29,${innerAlpha*0.6})`);
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(cx, cy, baseRadius, 0, Math.PI*2);
-  ctx.fill();
-  scourTexture.needsUpdate = true;
-}
-
-/* -----------------------
-   Tornado visual: stacked rings + inner particles
-   ----------------------- */
-function createTornado(){
-  if(tornadoGroup) scene.remove(tornadoGroup);
-  tornadoGroup = new THREE.Group();
-
-  const rings = performanceMode ? 18 : 36;
-  for(let i=0;i<rings;i++){
-    const radius = Math.max(1, 48 - i*1.1);
-    const tube = 1.6;
-    const geo = new THREE.TorusGeometry(radius, tube, 8, 56);
-    geo.rotateX(Math.PI/2);
-    geo.translate(0, (rings - i) * 4.6, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x1f1f20, transparent:true, opacity: 0.6 - (i/rings)*0.45, side: THREE.DoubleSide });
-    const ring = new THREE.Mesh(geo, mat);
-    ring.userData.index = i;
-    tornadoGroup.add(ring);
-  }
-
-  // inner particle cloud
-  const pCount = performanceMode ? 350 : 1200;
-  const pos = new Float32Array(pCount*3);
-  for(let i=0;i<pCount;i++){
-    pos[i*3+0] = (Math.random()-0.5)*20;
-    pos[i*3+1] = Math.random()*220;
-    pos[i*3+2] = (Math.random()-0.5)*20;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  innerParticles = new THREE.Points(g, new THREE.PointsMaterial({ size: performanceMode ? 1.0 : 1.6, color:0xaaaaaa, transparent:true, opacity:0.95 }));
-  tornadoGroup.add(innerParticles);
-
-  tornadoGroup.position.set(tornadoStart.x, tornadoStart.y, tornadoStart.z);
-  scene.add(tornadoGroup);
-  adjustTornadoScale();
-}
-
-/* Scale tornado visual when width slider changes */
-function adjustTornadoScale(){
-  const s = Math.max(0.5, Math.min(4.0, widthVal / 60));
-  tornadoGroup.scale.set(s,1,s);
-  if(innerParticles){
-    const arr = innerParticles.geometry.attributes.position.array;
-    for(let i=0;i<arr.length/3;i++){
-      arr[i*3+0] = (Math.random()-0.5) * 26 * s;
-      arr[i*3+1] = Math.random() * 220;
-      arr[i*3+2] = (Math.random()-0.5) * 26 * s;
-    }
-    innerParticles.geometry.attributes.position.needsUpdate = true;
-  }
-}
-
-/* -----------------------
-   Procedural map: roads, houses, trees, poles, streetlights, shelters
-   ----------------------- */
-function rebuildMap(){
-  // clear old
-  houses.forEach(h=>scene.remove(h)); houses=[];
-  trees.forEach(t=>scene.remove(t)); trees=[];
-  poles.forEach(p=>scene.remove(p.mesh)); poles=[];
-  cables.forEach(c=>scene.remove(c)); cables=[];
-  lights.forEach(l=>{
-    if(l.light) scene.remove(l.light);
-    if(l.mesh) scene.remove(l.mesh);
-  }); lights=[];
-  debris.forEach(d=>debrisGroup.remove(d)); debris=[]; shelters=[]; roads=[];
-
-  // simple procedural road network: vertical + horizontal roads
-  const main = performanceMode ? 2 : 4;
-  const spacing = MAP_SIZE / (main+1);
-  for(let i=1;i<=main;i++){
-    const x = -MAP_SIZE/2 + i*spacing;
-    createRoad('vertical', x);
-  }
-  const side = performanceMode ? 2 : 4;
-  for(let j=1;j<=side;j++){
-    const z = -MAP_SIZE/2 + j*(MAP_SIZE/(side+1));
-    createRoad('horizontal', z);
-  }
-
-  // for each road, place houses and streetlights
-  roads.forEach(r=>{
-    const houseCount = performanceMode ? 6 : 14;
-    for(let k=0;k<houseCount;k++){
-      const t = (k + 0.5) / houseCount;
-      const pos = { x: r.x1 + (r.x2 - r.x1) * t, z: r.z1 + (r.z2 - r.z1) * t };
-      // offset
-      const offset = (Math.random()*100 + 20) * (Math.random()<0.5 ? -1 : 1);
-      const hx = (r.dir==='vertical' ? pos.x + offset : pos.x + (Math.random()-0.5)*60);
-      const hz = (r.dir==='horizontal' ? pos.z + offset : pos.z + (Math.random()-0.5)*60);
-      createHouse(hx, hz);
-      // tree near house
-      createTree(hx + (Math.random()-0.5)*20, hz + (Math.random()-0.5)*20);
-    }
-    // poles/streetlights along road
-    const poleInterval = performanceMode ? 240 : 120;
-    const poleCount = Math.max(2, Math.floor(r.len / poleInterval));
-    for(let p=0;p<poleCount;p++){
-      const tt = (p + 0.2)/poleCount;
-      const pos = { x: r.x1 + (r.x2 - r.x1) * tt, z: r.z1 + (r.z2 - r.z1) * tt };
-      createPoleAndLight(pos.x, pos.z, r);
-    }
-  });
-
-  // connect poles with cables
-  finalizeCables();
-
-  // scatter ambient debris
-  const ambient = performanceMode ? 40 : 160;
-  for(let i=0;i<ambient;i++){
-    const s = 0.6 + Math.random()*2.4;
-    const g = new THREE.BoxGeometry(s, Math.max(0.2,s*0.35), s*0.7);
-    const m = new THREE.MeshStandardMaterial({ color:0x7b7b7b });
-    const p = new THREE.Mesh(g,m);
-    p.position.set((Math.random()-0.5)*900, Math.random()*70 + 6, (Math.random()-0.5)*900);
-    p.userData = { velocity: new THREE.Vector3(), life: undefined };
-    debrisGroup.add(p); debris.push(p);
-  }
-
-  // add some shelters
-  const shelterCount = performanceMode ? 1 : 5;
-  for(let i=0;i<shelterCount;i++){
-    const sx = (Math.random()-0.5)*MAP_SIZE*0.6;
-    const sz = (Math.random()-0.5)*MAP_SIZE*0.6;
-    createShelter(sx, sz);
-  }
-
-  updateWindRadius();
-  paintScour();
-}
-
-function createRoad(dir, fixed){
-  const width = 10;
-  if(dir === 'vertical'){
-    const x = fixed;
-    const z1 = -MAP_SIZE/2, z2 = MAP_SIZE/2;
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, MAP_SIZE), new THREE.MeshPhongMaterial({ color:0x333333 }));
-    plane.rotation.x = -Math.PI/2;
-    plane.position.set(x, 0.02, 0);
-    scene.add(plane);
-    roads.push({ dir:'vertical', x1:x, z1:z1, x2:x, z2:z2, len:MAP_SIZE });
-  } else {
-    const z = fixed;
-    const x1 = -MAP_SIZE/2, x2 = MAP_SIZE/2;
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(MAP_SIZE, width), new THREE.MeshPhongMaterial({ color:0x333333 }));
-    plane.rotation.x = -Math.PI/2;
-    plane.position.set(0, 0.02, z);
-    scene.add(plane);
-    roads.push({ dir:'horizontal', x1:x1, z1:z, x2:x2, z2:z, len:MAP_SIZE });
-  }
-}
-
-function createHouse(x,z){
-  const house = new THREE.Group();
-  const W=18,H=10,D=14; const brick=3;
-  const xs = Math.max(2, Math.floor(W/brick));
-  const zs = Math.max(2, Math.floor(D/brick));
-  const base = new THREE.Group();
-  for(let xi=0;xi<xs;xi++){
-    for(let zi=0;zi<zs;zi++){
-      const b = new THREE.Mesh(new THREE.BoxGeometry(brick, H-2, brick), new THREE.MeshStandardMaterial({ color: 0xb36a42 }));
-      b.position.set((xi - (xs-1)/2)*brick, (H/2)-1, (zi - (zs-1)/2)*brick);
-      base.add(b);
-    }
-  }
-  house.add(base);
-  const roof = new THREE.Group();
-  const tx=6,tz=4;
-  for(let ix=0;ix<tx;ix++){
-    for(let iz=0;iz<tz;iz++){
-      const tile = new THREE.Mesh(new THREE.BoxGeometry(4,1.8,6), new THREE.MeshStandardMaterial({ color: 0x5e1515 }));
-      tile.position.set((ix-(tx-1)/2)*4.2, H+1.6 + Math.random()*0.1, (iz-(tz-1)/2)*6.2);
-      roof.add(tile);
-    }
-  }
-  house.add(roof);
-  const isShelter = Math.random() < 0.06;
-  const survivable = isShelter ? 218 : 201;
-  house.userData = { baseGroup:base, roofGroup:roof, damageAccum:0, survivable, isShelter:false };
-  house.position.set(x + (Math.random()-0.5)*18, 0, z + (Math.random()-0.5)*18);
-  scene.add(house); houses.push(house);
-}
-
-function createTree(x,z){
-  const tree = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.2,6,6), new THREE.MeshStandardMaterial({ color: 0x6b3f2a }));
-  trunk.position.y = 3; tree.add(trunk);
-  const foliage = new THREE.Group();
-  const layers = performanceMode ? 2 : 4;
-  for(let l=0;l<layers;l++){
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(3 + l*1.1, 6 + l*0.9, 8), new THREE.MeshStandardMaterial({ color: 0x1f7a1f }));
-    cone.position.y = 6 + l*2.3; foliage.add(cone);
-  }
-  tree.add(foliage);
-  tree.userData = { trunk, foliage, damageAccum:0 };
-  tree.position.set(x, 0, z);
-  scene.add(tree); trees.push(tree);
-}
-
-function createPoleAndLight(x,z, road){
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.5,8,6), new THREE.MeshStandardMaterial({ color: 0x6b5b3b }));
-  pole.position.set(x, 4, z); scene.add(pole);
-  poles.push({ mesh: pole, x, z, road });
-
-  const lampMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,0.6), new THREE.MeshStandardMaterial({ color:0xfff3b0 }));
-  lampMesh.position.set(x, 7.6, z - 1.2); scene.add(lampMesh);
-  const pl = new THREE.PointLight(0xffeeaa, 0.6, 40); pl.position.copy(lampMesh.position); scene.add(pl);
-  lights.push({ mesh: lampMesh, light: pl, pole });
-}
-
-function finalizeCables(){
-  // simple grouping: connect nearest neighbor on same approximate axis
-  const grid = {};
-  poles.forEach(p=>{
-    const keyX = 'x'+Math.round(p.x/60);
-    const keyZ = 'z'+Math.round(p.z/60);
-    if(!grid[keyX]) grid[keyX]=[]; grid[keyX].push(p);
-    if(!grid[keyZ]) grid[keyZ]=[]; grid[keyZ].push(p);
-  });
-  Object.values(grid).forEach(arr=>{
-    arr.sort((a,b)=> a.z - b.z || a.x - b.x);
-    for(let i=1;i<arr.length;i++){
-      const a = arr[i-1], b = arr[i];
-      const start = new THREE.Vector3(a.x, a.mesh.position.y + 3.5, a.z);
-      const end = new THREE.Vector3(b.x, b.mesh.position.y + 3.5, b.z);
-      const cable = createCableGeom(start,end);
-      scene.add(cable); cables.push(cable);
-    }
-  });
-}
-function createCableGeom(a,b){
-  const dist = a.distanceTo(b);
-  const geo = new THREE.CylinderGeometry(0.08,0.08, dist, 6);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(a).lerp(b,0.5);
-  mesh.lookAt(b); mesh.rotateX(Math.PI/2);
-  mesh.userData = { a, b };
-  return mesh;
-}
-
-function createShelter(x,z){
-  const s = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(36,22,36), new THREE.MeshStandardMaterial({ color: 0x7b7b7b }));
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(20,8,6), new THREE.MeshStandardMaterial({ color:0x4a4a4a }));
-  roof.position.y = 16; s.add(base); s.add(roof);
-  s.position.set(x, 0, z);
-  s.userData = { isShelter:true, survivable: 218, damageAccum:0 };
-  scene.add(s); houses.push(s); shelters.push(s);
-}
-
-/* -----------------------
-   Debris spawn & destruction helpers
-   ----------------------- */
-function spawnDebrisFromMesh(mesh, count=4){
-  const pos = new THREE.Vector3();
-  mesh.getWorldPosition(pos);
-  for(let i=0;i<count;i++){
-    const s = 0.4 + Math.random()*2.4;
-    const g = new THREE.BoxGeometry(s, Math.max(0.12,s*0.28), s*0.7);
-    const m = mesh.material ? mesh.material.clone() : new THREE.MeshStandardMaterial({ color:0x888888 });
-    const p = new THREE.Mesh(g,m);
-    p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*6, 2 + Math.random()*3, (Math.random()-0.5)*6));
-    p.userData = { velocity: new THREE.Vector3((Math.random()-0.5)*2, 2 + Math.random()*3, (Math.random()-0.5)*2), life: 6 + Math.random()*8 };
-    debrisGroup.add(p); debris.push(p);
-    if(debris.length > (performanceMode ? 900 : 2600)) break;
-  }
-}
-function removeChildAndSpawn(parent, child){
-  if(!parent || !child) return;
-  // apply darker shade to remaining piece's materials (object-local only)
-  parent.remove(child);
-  spawnDebrisFromMesh(child, 3 + Math.floor(Math.random()*4));
-}
-
-/* -----------------------
-   Damage & physics (core)
-   ----------------------- */
-function updateWindRadius(){
-  windRadius = Math.max(80, widthVal * 2.2 * (1 + wind / 160));
-}
-
-function applyDamageAndPhysics(delta){
-  const center = new THREE.Vector3(tornadoGroup.position.x, 60, tornadoGroup.position.z);
-
-  // Houses damage
-  houses.forEach(h=>{
-    const dist = new THREE.Vector3(h.position.x,0,h.position.z).distanceTo(new THREE.Vector3(center.x,0,center.z));
-    const prox = Math.max(0, 1 - dist / windRadius);
-    if(wind >= DAMAGE_THRESHOLD && prox > 0.02){
-      const intensity = ((wind - DAMAGE_THRESHOLD) / (300 - DAMAGE_THRESHOLD + 0.0001)) * prox;
-      h.userData.damageAccum = (h.userData.damageAccum || 0) + intensity * delta * (0.6 + Math.random()*1.8);
-      if(h.userData.damageAccum > 0.45){
-        // if shelter with high survivable threshold skip slight damage
-        if(h.userData.isShelter && wind < (h.userData.survivable || 218)) {
-          // minor roof tile loss only
-          if(h.userData.roofGroup && h.userData.roofGroup.children.length){
-            const idx = Math.floor(Math.random()*h.userData.roofGroup.children.length);
-            const tile = h.userData.roofGroup.children[idx];
-            removeChildAndSpawn(h.userData.roofGroup, tile);
-          }
-        } else {
-          // remove roof piece first, then base bricks
-          if(h.userData.roofGroup && h.userData.roofGroup.children.length){
-            const idx = Math.floor(Math.random()*h.userData.roofGroup.children.length);
-            const tile = h.userData.roofGroup.children[idx];
-            removeChildAndSpawn(h.userData.roofGroup, tile);
-          } else if(h.userData.baseGroup && h.userData.baseGroup.children.length){
-            const idx = Math.floor(Math.random()*h.userData.baseGroup.children.length);
-            const brick = h.userData.baseGroup.children[idx];
-            removeChildAndSpawn(h.userData.baseGroup, brick);
-          } else {
-            // fully remove house sometimes
-            if(Math.random() < 0.5){
-              scene.remove(h);
-              houses = houses.filter(x=>x!==h);
-            }
-          }
-        }
-        h.userData.damageAccum = Math.random()*0.25;
-      }
-    } else {
-      h.userData.damageAccum = Math.max(0, (h.userData.damageAccum||0) - delta * 0.1);
-    }
-  });
-
-  // Trees: debark, remove foliage, then trunk
-  trees.forEach(t=>{
-    const dist = new THREE.Vector3(t.position.x,0,t.position.z).distanceTo(new THREE.Vector3(center.x,0,center.z));
-    const prox = Math.max(0, 1 - dist / (windRadius * 0.95));
-    if(wind >= DAMAGE_THRESHOLD && prox > 0.02){
-      const intensity = ((wind - DAMAGE_THRESHOLD) / (300 - DAMAGE_THRESHOLD + 0.0001)) * prox;
-      t.userData.damageAccum = (t.userData.damageAccum || 0) + intensity * delta * (0.6 + Math.random()*1.2);
-      if(t.userData.damageAccum > 0.45){
-        if(t.userData.foliage && t.userData.foliage.children.length){
-          const idx = Math.floor(Math.random()*t.userData.foliage.children.length);
-          const piece = t.userData.foliage.children[idx];
-          removeChildAndSpawn(t.userData.foliage, piece);
-          // darken trunk material (object-local only)
-          t.userData.trunk.material.color.offsetHSL(0, -0.05, -0.06);
-        } else {
-          // remove trunk
-          if(t.userData.trunk && t.userData.trunk.parent) {
-            removeChildAndSpawn(t, t.userData.trunk);
-            scene.remove(t);
-            trees = trees.filter(x=>x!==t);
-          }
-        }
-        t.userData.damageAccum = Math.random()*0.2;
-      }
-    } else {
-      t.userData.damageAccum = Math.max(0, (t.userData.damageAccum||0) - delta * 0.12);
-    }
-  });
-
-  // debris physics (swirl/pull/updraft)
-  const tNow = performance.now() * 0.001;
-  const maxPull = windRadius * 1.6;
-  for(let i=debris.length-1;i>=0;i--){
-    const p = debris[i];
-    if(p.userData.life !== undefined){
-      p.userData.life -= delta;
-      if(p.userData.life <= 0){
-        debrisGroup.remove(p); debris.splice(i,1); continue;
-      }
-    }
-    const dir = new THREE.Vector3().subVectors(center, p.position);
-    const dist = dir.length();
-    if(dist > maxPull){
-      // gravity settle
-      p.userData.velocity.y -= 9.8 * 0.018 * delta;
-      p.userData.velocity.multiplyScalar(0.995);
-      p.position.addScaledVector(p.userData.velocity, delta * 60);
-      continue;
-    }
-    const radial = dir.clone().normalize();
-    const tangential = new THREE.Vector3(-radial.z, 0, radial.x);
-    const proximity = Math.max(0, 1 - dist / maxPull);
-    const pull = 0.8 * (wind / 160) * proximity;
-    const swirl = 0.45 * (1 + proximity * 1.9) * (wind / 160);
-    const up = 0.7 * (1 + proximity) * (wind / 200);
-    const wobble = Math.sin(tNow * 6 + i) * 0.02;
-    p.userData.velocity.addScaledVector(radial, pull * delta * 200);
-    p.userData.velocity.addScaledVector(tangential, swirl * delta * 200);
-    p.userData.velocity.y += (up + wobble) * delta * 60;
-    p.userData.velocity.multiplyScalar(0.993);
-    p.position.addScaledVector(p.userData.velocity, delta * 60);
-    if(dist < 8){
-      if(Math.random() < 0.35) p.userData.life = 3 + Math.random()*4;
-      else { debrisGroup.remove(p); debris.splice(i,1); }
-    }
-
-    // check poles for impact -> power flash
-    if(p.userData.velocity.length() > 0.6){
-      poles.forEach(pol=>{
-        const polePos = new THREE.Vector3(pol.x, pol.mesh.position.y, pol.z);
-        if(p.position.distanceTo(polePos) < 3 && !pol.lastFlash){
-          triggerPowerFlash(polePos);
-          pol.lastFlash = performance.now();
-        }
-      });
-    }
-  }
-
-  // power flash lifetime cleanup
-  for(let i=powerFlashes.length-1;i>=0;i--){
-    const pf = powerFlashes[i];
-    if(performance.now() - pf.start > 1000){
-      scene.remove(pf.light);
-      powerFlashes.splice(i,1);
-    }
-  }
-}
-
-/* Power flash local to pole/cable only */
-function triggerPowerFlash(pos){
-  const light = new THREE.PointLight(0xfffbcc, 2.2, 240);
-  light.position.copy(pos).add(new THREE.Vector3(0,12,0));
-  scene.add(light);
-  powerFlashes.push({ light, start: performance.now() });
-}
-
-/* -----------------------
-   Funnel drop, reset, utils
-   ----------------------- */
-function startDrop(){
-  if(dropping || animating) return;
-  dropping = true; animating = false;
-  tornadoGroup.position.set(tornadoStart.x, tornadoStart.y, tornadoStart.z);
-  const duration = 1000, fromY = tornadoStart.y, toY = 60;
-  const start = performance.now();
-  (function step(now){
-    const t = Math.min(1, (now - start) / duration);
-    const e = 1 - Math.pow(1 - t, 3);
-    tornadoGroup.position.y = fromY * (1 - e) + toY * e;
-    tornadoGroup.children.forEach((r, idx) => r.rotation.y += 0.03 + idx*0.001);
-    if(t < 1) requestAnimationFrame(step);
-    else { dropping = false; animating = true; }
-  })(performance.now());
-}
-
-function resetAll(){
-  animating = false; dropping = false;
-  tornadoGroup.position.set(tornadoStart.x, tornadoStart.y, tornadoStart.z);
-  tornadoGroup.rotation.set(0,0,0);
-  // remove objects
-  houses.forEach(h=>scene.remove(h)); houses=[]; trees.forEach(t=>scene.remove(t)); trees=[];
-  poles.forEach(p=>scene.remove(p.mesh)); poles=[]; cables.forEach(c=>scene.remove(c)); cables=[];
-  lights.forEach(l=>{ if(l.light) scene.remove(l.light); if(l.mesh) scene.remove(l.mesh); }); lights=[];
-  debris.forEach(d=>debrisGroup.remove(d)); debris=[];
-  shelters=[]; roads=[];
-  // clear scour
-  if(scourCanvas){
-    const ctx = scourCanvas.getContext('2d');
-    ctx.fillStyle = '#2c522c'; ctx.fillRect(0,0,scourCanvas.width,scourCanvas.height);
-    scourTexture.needsUpdate = true;
-  }
-  rebuildMap();
-}
-
-/* mph -> scene units (translation). tuned for speed: 1 mph ~ 0.03 units/sec base */
-function mphToUnits(mph){ return mph * 0.03; }
-
-/* -----------------------
-   Animation loop
-   ----------------------- */
-function animate(){
-  requestAnimationFrame(animate);
-  const now = performance.now();
-  const delta = Math.min(0.06, (now - lastTime)/1000);
-  lastTime = now;
-
-  // tornado translation uses speedMph (not wind)
-  if(animating && !dropping){
-    const units = mphToUnits(speedMph);
-    tornadoGroup.position.x += units * delta * 60;
-  }
-
-  // ring rotation & inner particle spin
-  const ringSpeed = 0.05 + (wind / 240) * 0.6;
-  tornadoGroup.children.forEach((r, idx) => r.rotation.y += ringSpeed * (1 + idx*0.002));
-  if(innerParticles) innerParticles.rotation.y += 0.06 + (wind / 400);
-
-  // slight inner particle wobble
-  if(innerParticles){
-    const arr = innerParticles.geometry.attributes.position.array;
-    for(let i=0;i<arr.length/3;i++){
-      arr[i*3+0] += Math.sin(now*0.001 + i) * 0.0008;
-      arr[i*3+2] += Math.cos(now*0.001 + i) * 0.0008;
-    }
-    innerParticles.geometry.attributes.position.needsUpdate = true;
-  }
-
-  paintScour();
-
-  if(animating){
-    applyDamageAndPhysics(delta);
-  } else {
-    // settle debris slowly
-    for(let i=debris.length-1;i>=0;i--){
-      const p = debris[i];
-      p.userData.velocity.y -= 9.8 * 0.018 * delta;
-      p.userData.velocity.multiplyScalar(0.995);
-      p.position.addScaledVector(p.userData.velocity, delta * 60);
-      if(p.userData.life !== undefined){
-        p.userData.life -= delta;
-        if(p.userData.life <= 0){ debrisGroup.remove(p); debris.splice(i,1); }
-      }
-    }
-  }
-
-  // camera follow (smoothed)
-  camera.position.x += (tornadoGroup.position.x + 120 - camera.position.x) * 0.03;
-  camera.position.z += (tornadoGroup.position.z + 380 - camera.position.z) * 0.03;
-  camera.lookAt(new THREE.Vector3(tornadoGroup.position.x, 60, tornadoGroup.position.z));
-
-  // estimate strength by average damage for HUD
-  const sample = houses.concat(trees).slice(0,40);
-  let total = 0, cnt = 0;
-  sample.forEach(o=>{ if(o.userData && o.userData.damageAccum){ total += o.userData.damageAccum; cnt++; }});
-  const avg = cnt ? total/cnt : 0;
-  const est = animating ? Math.round(Math.min(500, 80 + avg * (wind * 1.6))) : '—';
-  estStrengthEl.textContent = est;
-
-  renderer.render(scene, camera);
-}
-
-/* -----------------------
-   Startup
-   ----------------------- */
+// Scene Init
 init();
 animate();
 
-}); // end DOMContentLoaded
+function init(){
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x888888); // gray sky
+
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 5000);
+  camera.position.set(0,200,400);
+  camera.lookAt(0,0,0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Lights
+  scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1));
+  const dirLight = new THREE.DirectionalLight(0xffffff,0.8);
+  dirLight.position.set(-100,200,100);
+  scene.add(dirLight);
+
+  // Ground
+  const groundMat = new THREE.MeshPhongMaterial({color:0x2c3e2c});
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(2000,2000), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  // Tornado
+  const torGeo = new THREE.CylinderGeometry(20,5,120,16,1,true);
+  const torMat = new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.7});
+  tornado = new THREE.Mesh(torGeo, torMat);
+  tornado.position.set(-400,60,0);
+  scene.add(tornado);
+
+  debrisGroup = new THREE.Group();
+  scene.add(debrisGroup);
+
+  // Buttons
+  document.getElementById("startBtn").onclick = ()=> { animating=true; resetScene(); };
+  document.getElementById("resetBtn").onclick = ()=> { animating=false; resetScene(); };
+
+  window.addEventListener("resize",()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  setupSceneObjects();
+}
+
+// Setup houses, trees, debris, roads, lights
+function setupSceneObjects(){
+  // Clear previous
+  houses.forEach(h=>scene.remove(h)); houses=[];
+  trees.forEach(t=>scene.remove(t)); trees=[];
+  debrisParticles.forEach(d=>debrisGroup.remove(d)); debrisParticles=[];
+  roads.forEach(r=>scene.remove(r)); roads=[];
+  streetLights.forEach(l=>scene.remove(l)); streetLights=[];
+  powerLines.forEach(p=>scene.remove(p)); powerLines=[];
+
+  let houseCount = phoneMode?5:performanceMode?10:20;
+  let treeCount = phoneMode?10:performanceMode?20:50;
+  let debrisCount = phoneMode?30:performanceMode?50:200;
+
+  // Procedural Roads, Houses, Trees
+  for(let i=0;i<houseCount;i++){
+    let house = new THREE.Group();
+    let base = new THREE.Mesh(new THREE.BoxGeometry(20,10,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
+    let roof = new THREE.Mesh(new THREE.ConeGeometry(15,6,4), new THREE.MeshStandardMaterial({color:0x8b0000}));
+    roof.position.y=8;
+    house.add(base); house.add(roof);
+    house.position.set((Math.random()-0.5)*1500,5,(Math.random()-0.5)*1500);
+    house.userData.damagedParts=[];
+    scene.add(house); houses.push(house);
+
+    // Road
+    let road = new THREE.Mesh(new THREE.PlaneGeometry(30,50), new THREE.MeshPhongMaterial({color:0x555555}));
+    road.rotation.x=-Math.PI/2; road.position.set(house.position.x,0,house.position.z-30);
+    scene.add(road); roads.push(road);
+
+    // Streetlight
+    let light = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,15,6), new THREE.MeshStandardMaterial({color:0xffff00}));
+    light.position.set(house.position.x+10,7.5,house.position.z-25);
+    scene.add(light); streetLights.push(light);
+
+    // Powerline
+    let pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,10,6), new THREE.MeshStandardMaterial({color:0x888888}));
+    pole.position.set(house.position.x-10,5,house.position.z-25);
+    scene.add(pole); powerLines.push(pole);
+  }
+
+  // Trees
+  for(let i=0;i<treeCount;i++){
+    let trunk = new THREE.Mesh(new THREE.CylinderGeometry(1,1,5,6), new THREE.MeshStandardMaterial({color:0x8b4513}));
+    let leaves = new THREE.Mesh(new THREE.ConeGeometry(3,10,8), new THREE.MeshStandardMaterial({color:0x228B22}));
+    let tree = new THREE.Group(); trunk.position.y=2.5; leaves.position.y=8;
+    tree.add(trunk); tree.add(leaves);
+    tree.position.set((Math.random()-0.5)*1500,0,(Math.random()-0.5)*1500);
+    tree.userData.damagedParts=[];
+    scene.add(tree); trees.push(tree);
+  }
+
+  // Debris
+  for(let i=0;i<debrisCount;i++){
+    let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:0x888888}));
+    d.position.set((Math.random()-0.5)*800,Math.random()*100,(Math.random()-0.5)*800);
+    d.userData.velocity = new THREE.Vector3();
+    debrisGroup.add(d); debrisParticles.push(d);
+  }
+}
+
+function resetScene(){
+  tornado.position.set(-400,60,0);
+  houses.forEach(h=>h.userData.damagedParts=[]);
+  trees.forEach(t=>t.userData.damagedParts=[]);
+  debrisParticles.forEach(d=>d.userData.velocity.set(0,0,0));
+}
+
+// Animate loop
+function animate(){
+  requestAnimationFrame(animate);
+
+  if(animating){
+    tornado.position.x += tornadoSpeed;
+    tornado.rotation.y += 0.05;
+
+    // Houses damage & debris
+    houses.forEach(h=>{
+      let dist = h.position.distanceTo(tornado.position);
+      if(dist<tornadoWidth*2){
+        h.children.forEach(c=>{
+          if(Math.random()*windSpeed>30 && !h.userData.damagedParts.includes(c)){
+            c.position.y -= Math.random()*2;
+            c.rotation.x += (Math.random()-0.5)*0.5;
+            c.rotation.z += (Math.random()-0.5)*0.5;
+            h.userData.damagedParts.push(c);
+
+            // debris spawn
+            if(!phoneMode){
+              let debris = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:c.material.color}));
+              debris.position.copy(c.getWorldPosition(new THREE.Vector3()));
+              debris.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
+              debrisGroup.add(debris); debrisParticles.push(debris);
+            }
+          }
+        });
+      }
+    });
+
+    // Trees damage
+    trees.forEach(t=>{
+      let dist = t.position.distanceTo(tornado.position);
+      if(dist<tornadoWidth*2){
+        t.children.forEach(c=>{
+          if(Math.random()*windSpeed>25 && !t.userData.damagedParts.includes(c)){
+            c.rotation.x += (Math.random()-0.5)*0.5;
+            c.rotation.z += (Math.random()-0.5)*0.5;
+            t.userData.damagedParts.push(c);
+
+            if(!phoneMode && Math.random()<0.3){
+              let debris = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:c.material.color}));
+              debris.position.copy(c.getWorldPosition(new THREE.Vector3()));
+              debris.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
+              debrisGroup.add(debris); debrisParticles.push(debris);
+            }
+          }
+        });
+      }
+    });
+
+    // Debris movement (sucked into tornado)
+    debrisParticles.forEach(d=>{
+      let dir = new THREE.Vector3().subVectors(tornado.position,d.position);
+      let dist = dir.length();
+      if(dist<tornadoWidth*4){
+        dir.normalize();
+        let factor = windSpeed/50 * (1-dist/(tornadoWidth*4));
+        d.userData.velocity.add(dir.multiplyScalar(0.2*factor));
+        d.userData.velocity.y -= 0.01;
+        d.position.add(d.userData.velocity);
+      }
+    });
+
+    // Ground scour
+    let scourRadius = tornadoWidth*1.2;
+    let distToTornado = new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), tornado.position).length();
+    let intensity = Math.min(windSpeed/200,1);
+    ground.material.color.setRGB(0.17+0.2*intensity,0.24+0.2*intensity,0.17);
+
+    // Powerline flashes
+    powerLines.forEach(p=>{
+      if(p.position.distanceTo(tornado.position)<tornadoWidth*2 && Math.random()*windSpeed>50){
+        let origColor = p.material.color.clone();
+        p.material.color.set(0xffffff);
+        setTimeout(()=>{p.material.color.copy(origColor)},1000);
+      }
+    });
+  }
+
+  renderer.render(scene,camera);
+}
 </script>
 </body>
 </html>
