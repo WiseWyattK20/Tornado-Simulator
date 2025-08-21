@@ -11,7 +11,10 @@
     padding:10px; border-radius:8px; z-index:10; max-width:250px;
   }
   #controls input { width:160px; }
-  button { margin:5px 0; padding:5px 10px; }
+  button { margin:5px 0; padding:5px 10px; cursor:pointer; }
+  #toggleControlsBtn {
+    position:absolute; top:10px; right:10px; z-index:11; padding:5px 10px;
+  }
 </style>
 </head>
 <body>
@@ -32,6 +35,8 @@
   <button id="resetBtn">Reset</button>
 </div>
 
+<button id="toggleControlsBtn">Hide Controls</button>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
 let scene, camera, renderer;
@@ -44,7 +49,6 @@ let tornadoWidth = 50;
 let performanceMode = true;
 let phoneMode = false;
 let ground;
-let lightningCooldown = 0;
 
 // UI Elements
 const windSlider = document.getElementById("windSlider");
@@ -55,12 +59,24 @@ const speedValue = document.getElementById("speedValue");
 const widthValue = document.getElementById("widthValue");
 const perfToggle = document.getElementById("perfToggle");
 const phoneToggle = document.getElementById("phoneToggle");
+const controlsDiv = document.getElementById("controls");
+const toggleControlsBtn = document.getElementById("toggleControlsBtn");
 
 windSlider.oninput = ()=> { windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); };
-speedSlider.oninput = ()=> { speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value)/1; };
+speedSlider.oninput = ()=> { speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value); };
 widthSlider.oninput = ()=> { widthValue.textContent = widthSlider.value; tornadoWidth = Number(widthSlider.value); tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
 perfToggle.onchange = ()=> { performanceMode = perfToggle.checked; setupSceneObjects(); };
 phoneToggle.onchange = ()=> { phoneMode = phoneToggle.checked; setupSceneObjects(); };
+
+toggleControlsBtn.onclick = ()=>{
+  if(controlsDiv.style.display==='none'){
+    controlsDiv.style.display='block';
+    toggleControlsBtn.textContent='Hide Controls';
+  } else {
+    controlsDiv.style.display='none';
+    toggleControlsBtn.textContent='Show Controls';
+  }
+};
 
 // Scene Init
 init();
@@ -247,8 +263,6 @@ function animate(){
     });
 
     // Ground scour
-    let scourRadius = tornadoWidth*1.2;
-    let distToTornado = new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), tornado.position).length();
     let intensity = Math.min(windSpeed/200,1);
     ground.material.color.setRGB(0.17+0.2*intensity,0.24+0.2*intensity,0.17);
 
