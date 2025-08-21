@@ -1,66 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Advanced 3D Tornado Simulator</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tornado Simulator — Fixed & Procedural Damage</title>
 <style>
-  body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+  html,body { height:100%; margin:0; }
+  body { font-family: Arial, sans-serif; overflow:hidden; }
   #controls {
-    position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.9);
-    padding: 10px; border-radius: 8px; z-index: 10; max-width: 250px;
+    position: absolute; left: 10px; top: 10px; z-index: 30;
+    background: rgba(255,255,255,0.92); padding:10px; border-radius:8px;
+    width: 260px; box-shadow:0 6px 18px rgba(0,0,0,0.15);
   }
-  #controls input { width: 160px; }
-  button { margin: 5px 0; padding: 5px 10px; }
+  #controls input[type=range] { width: 180px; }
+  #controls label { font-size:13px; }
+  button { margin-top:6px; padding:6px 10px; }
+  #status { position: absolute; right: 12px; top: 12px; z-index: 30; color:#111; background: rgba(255,255,255,0.85); padding:6px 8px; border-radius:6px; font-size:13px; }
 </style>
 </head>
 <body>
 <div id="controls">
-  <label>Wind Speed (mph): <span id="windValue">50</span></label><br />
-  <input type="range" id="windSlider" min="10" max="200" value="50"><br />
+  <label>Wind Speed (mph): <strong id="windValue">50</strong></label><br>
+  <input id="windSlider" type="range" min="10" max="200" value="50"><br>
 
-  <label>Tornado Speed (mph): <span id="speedValue">20</span></label><br />
-  <input type="range" id="speedSlider" min="1" max="90" value="20"><br />
+  <label>Tornado Speed (mph): <strong id="speedValue">20</strong></label><br>
+  <input id="speedSlider" type="range" min="1" max="90" value="20"><br>
 
-  <label>Tornado Width: <span id="widthValue">50</span></label><br />
-  <input type="range" id="widthSlider" min="10" max="250" value="50"><br />
+  <label>Tornado Width: <strong id="widthValue">50</strong></label><br>
+  <input id="widthSlider" type="range" min="10" max="250" value="50"><br>
 
-  <label>Performance Mode:</label>
-  <input type="checkbox" id="perfToggle" checked><br>
+  <label>Performance Mode (auto):</label>
+  <input id="perfToggle" type="checkbox" checked><br>
 
   <button id="startBtn">Start</button>
   <button id="resetBtn">Reset</button>
 </div>
 
+<div id="status">Perf: <span id="perfState">AUTO</span></div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
+/* -------------------------------------------------------
+  Tornado Simulator — bugfixed & procedural destruction
+  - Reset returns tornado to its start pos
+  - Supercell & wall cloud now present and follow tornado
+  - Lightning bolts originate from wall cloud -> ground
+  - Procedural continuous damage while wind >= damageThreshold
+  - Debris spawns from destroyed parts and is sucked into vortex
+  - Performance mode auto-detected and toggleable
+-------------------------------------------------------*/
+
 let scene, camera, renderer;
-let tornado, debrisGroup = [], debrisParticles = [];
+let tornado, tornadoStart = new THREE.Vector3(-400, 60, 0);
+let debrisGroup, debrisParticles = [];
 let houses = [], trees = [];
 let supercell, wallCloud;
 let animating = false;
-let windSpeed = 50, tornadoSpeed = 20, tornadoWidth = 50;
+
+let windSpeed = 50;       // mph (UI)
+let tornadoSpeedMph = 20; // mph (UI)
+let tornadoWidth = 50;    // UI slider -> affects wind radius
+let tornadoWindRadius = tornadoWidth * 2;
 let performanceMode = true;
-let lightningCooldown = 0;
+let damageThreshold = 75; // damage occurs only while windSpeed >= damageThreshold
+let lastTime = performance.now();
+let lightningTimer = 0;
 
-// UI Elements
-const windSlider = document.getElementById("windSlider");
-const speedSlider = document.getElementById("speedSlider");
-const widthSlider = document.getElementById("widthSlider");
-const windValue = document.getElementById("windValue");
-const speedValue = document.getElementById("speedValue");
-const widthValue = document.getElementById("widthValue");
-const perfToggle = document.getElementById("perfToggle");
+// UI
+const windSlider = document.getElementById('windSlider');
+const speedSlider = document.getElementById('speedSlider');
+const widthSlider = document.getElementById('widthSlider');
+const windValue = document.getElementById('windValue');
+const speedValue = document.getElementById('speedValue');
+const widthValue = document.getElementById('widthValue');
+const perfToggle = document.getElementById('perfToggle');
+const perfState = document.getElementById('perfState');
 
-windSlider.oninput = ()=> { windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); };
-speedSlider.oninput = ()=> { speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value)/10; };
-widthSlider.oninput = ()=> { 
-  widthValue.textContent = widthSlider.value; 
-  tornadoWidth = Number(widthSlider.value); 
-};
-perfToggle.onchange = ()=> { performanceMode = perfToggle.checked; setupSceneObjects(); };
+windSlider.oninput = () => { windSpeed = Number(windSlider.value); windValue.textContent = windSlider.value; };
+speedSlider.oninput = () => { tornadoSpeedMph = Number(speedSlider.value); speedValue.textContent = speedSlider.value; };
+widthSlider.oninput = () => { tornadoWidth = Number(widthSlider.value); widthValue.textContent = widthSlider.value; updateWindRadius(); };
+perfToggle.onchange = () => { performanceMode = perfToggle.checked; applyPerformanceMode(); setupSceneObjects(); };
 
-// Init scene
+document.getElementById('startBtn').onclick = ()=> animating = true;
+document.getElementById('resetBtn').onclick = ()=> resetAll();
+
+function detectAutoPerf(){
+  // Auto-enable performance mode for low-memory / mobile devices
+  let mem = navigator.deviceMemory || 4;
+  let ua = navigator.userAgent || '';
+  let isMobile = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(ua);
+  if(mem <= 2 || isMobile) performanceMode = true; else performanceMode = false;
+  perfToggle.checked = performanceMode;
+  perfState.textContent = performanceMode ? 'ON' : 'OFF';
+}
+detectAutoPerf();
+
+function applyPerformanceMode(){
+  perfState.textContent = performanceMode ? 'ON' : 'OFF';
+  // renderer antialiasing controlled at init only; recreating renderer on toggle is heavier.
+  // We'll just adjust pixel ratio and counts via setupSceneObjects()
+  if(renderer) renderer.setPixelRatio(performanceMode ? Math.min(window.devicePixelRatio||1,1) : Math.min(window.devicePixelRatio||1.5,2));
+}
+
+// ---- init ----
 init();
 animate();
 
@@ -68,231 +110,469 @@ function init(){
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 5000);
-  camera.position.set(0, 200, 400);
-  camera.lookAt(0,0,0);
+  camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 5000);
+  camera.position.set(0,220,520);
+  camera.lookAt(0,60,0);
 
   renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(performanceMode ? Math.min(window.devicePixelRatio||1,1) : Math.min(window.devicePixelRatio||1.5,2));
   document.body.appendChild(renderer.domElement);
 
-  // Lights
-  const hemiLight = new THREE.HemisphereLight(0xffffff,0x444444,1);
-  scene.add(hemiLight);
-  const dirLight = new THREE.DirectionalLight(0xffffff,0.8);
-  dirLight.position.set(-100,200,100);
-  scene.add(dirLight);
+  window.addEventListener('resize', ()=> {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
 
-  // Ground
-  const groundMat = new THREE.MeshPhongMaterial({color:0x228B22});
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000,2000), groundMat);
+  // lighting
+  const hemi = new THREE.HemisphereLight(0xe8f5ff, 0x444444, 0.95);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  sun.position.set(-200,300,120);
+  scene.add(sun);
+
+  // ground
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000,3000), new THREE.MeshPhongMaterial({color:0x7dbb6b}));
   ground.rotation.x = -Math.PI/2;
   scene.add(ground);
 
-  // Tornado
-  const torGeo = new THREE.CylinderGeometry(20,5,120,16,1,true);
-  const torMat = new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.7});
-  tornado = new THREE.Mesh(torGeo, torMat);
-  tornado.position.set(-400,60,0);
+  // tornado (visual). Keep visual scale limited; physics use tornadoWindRadius.
+  const funnelGeo = new THREE.CylinderGeometry(22,6,220,24,1,true);
+  funnelGeo.translate(0,110,0); // lift so base rests on y=0
+  const funnelMat = new THREE.MeshStandardMaterial({ color:0x333333, transparent:true, opacity:0.72, side: THREE.DoubleSide });
+  tornado = new THREE.Mesh(funnelGeo, funnelMat);
+  tornado.position.copy(tornadoStart);
   scene.add(tornado);
 
-  // Debris group
+  // add a subtle inner swirl for visuals
+  const inner = new THREE.Mesh(new THREE.CylinderGeometry(8,30,200,12,1,true),
+                               new THREE.MeshStandardMaterial({color:0x222222, transparent:true, opacity:0.9}));
+  inner.geometry.translate(0,100,0);
+  tornado.add(inner);
+
+  // debris group
   debrisGroup = new THREE.Group();
   scene.add(debrisGroup);
 
-  // Supercell & Wall cloud
+  // supercell & wall cloud
   supercell = new THREE.Group();
   wallCloud = new THREE.Group();
+  // create visible cloud geometry (flattened spheroids) but start them at tornado location so they are not floating at 0,0
+  for(let i=0;i<10;i++){
+    const g = new THREE.SphereGeometry(70 + Math.random()*80, 8, 6);
+    g.scale(1, 0.5, 1.6);
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x44464e, transparent:true, opacity:0.35}));
+    m.position.set((Math.random()-0.5)*200, 0, (Math.random()-0.5)*200);
+    supercell.add(m);
+  }
+  const w = new THREE.CylinderGeometry(140,220,50,18);
+  const wm = new THREE.Mesh(w, new THREE.MeshLambertMaterial({color:0x222229, transparent:true, opacity:0.4}));
+  wm.geometry.translate(0,25,0);
+  wallCloud.add(wm);
+
   scene.add(supercell);
   scene.add(wallCloud);
 
-  // Supercell mesh
-  const supercellMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(100,16,16),
-    new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.3})
-  );
-  supercell.add(supercellMesh);
-  const wallCloudMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(60,16,16),
-    new THREE.MeshStandardMaterial({color:0x333333, transparent:true, opacity:0.4})
-  );
-  wallCloud.add(wallCloudMesh);
-
-  // Buttons
-  document.getElementById("startBtn").onclick = ()=> { animating=true; };
-  document.getElementById("resetBtn").onclick = ()=> { animating=false; resetAll(); };
-
-  window.addEventListener("resize",()=>{
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-
+  // initial objects
+  applyPerformanceMode();
   setupSceneObjects();
+  updateWindRadius();
 }
 
-// Setup houses, trees, debris
+// ---- scene objects creation ----
 function setupSceneObjects(){
-  // Clear previous
-  houses.forEach(h=>scene.remove(h));
-  trees.forEach(t=>scene.remove(t));
-  debrisParticles.forEach(d=>debrisGroup.remove(d));
-  houses=[]; trees=[]; debrisParticles=[];
+  // clear previous
+  houses.forEach(h => scene.remove(h)); houses.length = 0;
+  trees.forEach(t => scene.remove(t)); trees.length = 0;
+  debrisParticles.forEach(d => debrisGroup.remove(d)); debrisParticles.length = 0;
 
-  let houseCount = performanceMode ? 10 : 20;
-  let treeCount = performanceMode ? 20 : 50;
-  let debrisCount = performanceMode ? 50 : 200;
+  // counts scaled for perf
+  const houseCount = performanceMode ? 10 : 24;
+  const treeCount  = performanceMode ? 28 : 80;
+  const debrisCount = performanceMode ? 70 : 240;
 
-  // Houses
+  // Houses: create with several removable roof-chunks to allow randomized partial destruction
   for(let i=0;i<houseCount;i++){
-    let house = new THREE.Group();
-    let base = new THREE.Mesh(new THREE.BoxGeometry(20,10,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
-    let roof = new THREE.Mesh(new THREE.ConeGeometry(15,6,4), new THREE.MeshStandardMaterial({color:0x8b0000}));
-    roof.position.y=8;
-    house.add(base); house.add(roof);
-    house.position.set((Math.random()-0.5)*1500,5,(Math.random()-0.5)*1500);
-    house.userData.original = {pos: house.position.clone(), rotation: house.rotation.clone(), children: house.children.map(c=>c.clone())};
-    house.userData.damagedParts = [];
+    const house = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(22,12,18), new THREE.MeshStandardMaterial({color:0xa0522d}));
+    base.position.y = 6;
+    house.add(base);
+
+    // roof split into tiles/sections for procedural removal
+    const roofGroup = new THREE.Group();
+    const tilesX = 3, tilesZ = 3;
+    const tileW = 10, tileH = 4, tileD = 6;
+    for(let xi=0; xi<tilesX; xi++){
+      for(let zi=0; zi<tilesZ; zi++){
+        const tile = new THREE.Mesh(new THREE.BoxGeometry(tileW, tileH, tileD), new THREE.MeshStandardMaterial({color:0x6b0b0b}));
+        tile.position.set((xi - (tilesX-1)/2) * tileW * 0.9, 12 + Math.random()*0.4, (zi - (tilesZ-1)/2) * tileD * 0.9);
+        tile.userData.isRoofTile = true;
+        roofGroup.add(tile);
+      }
+    }
+    house.add(roofGroup);
+
+    // position the house in the world
+    house.position.set((Math.random()-0.5)*1400, 0, (Math.random()-0.5)*1400);
+
+    // store original state for reset
+    house.userData.original = {
+      position: house.position.clone(),
+      rotation: house.rotation.clone(),
+      roofCount: roofGroup.children.length
+    };
+    // damage tracking
+    house.userData.parts = { base, roofGroup };
+    house.userData.removedParts = [];
+    house.userData.damageAccum = 0;
+
     scene.add(house);
     houses.push(house);
   }
 
-  // Trees
+  // Trees: multiple foliage chunks so they can be removed piece-by-piece
   for(let i=0;i<treeCount;i++){
-    let trunk = new THREE.Mesh(new THREE.CylinderGeometry(1,1,5,6), new THREE.MeshStandardMaterial({color:0x8b4513}));
-    let leaves = new THREE.Mesh(new THREE.ConeGeometry(3,10,8), new THREE.MeshStandardMaterial({color:0x228B22}));
-    let tree = new THREE.Group();
-    trunk.position.y=2.5; leaves.position.y=8;
-    tree.add(trunk); tree.add(leaves);
-    tree.position.set((Math.random()-0.5)*1500,0,(Math.random()-0.5)*1500);
-    tree.userData.original = {pos: tree.position.clone(), children: tree.children.map(c=>c.clone())};
-    tree.userData.damagedParts=[];
+    const tree = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.1,6,6), new THREE.MeshStandardMaterial({color:0x6b3f2a}));
+    trunk.position.y = 3;
+    tree.add(trunk);
+
+    const foliageGroup = new THREE.Group();
+    const layers = performanceMode ? 2 : 4;
+    for(let l=0;l<layers;l++){
+      const foliage = new THREE.Mesh(new THREE.ConeGeometry(3 + l*1.3, 6 + l*1.2, 8), new THREE.MeshStandardMaterial({color:0x1f7a1f}));
+      foliage.position.y = 6 + l*3;
+      foliage.userData.isFoliage = true;
+      foliageGroup.add(foliage);
+    }
+    tree.add(foliageGroup);
+
+    tree.position.set((Math.random()-0.5)*1400, 0, (Math.random()-0.5)*1400);
+    tree.userData.original = { position: tree.position.clone(), foliageCount: foliageGroup.children.length };
+    tree.userData.parts = { trunk, foliageGroup };
+    tree.userData.removedParts = [];
+    tree.userData.damageAccum = 0;
+
     scene.add(tree);
     trees.push(tree);
   }
 
-  // Debris
+  // initial ambient debris (loose objects)
   for(let i=0;i<debrisCount;i++){
-    let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:0x888888}));
-    d.position.set((Math.random()-0.5)*800,Math.random()*100,(Math.random()-0.5)*800);
+    const size = 0.6 + Math.random()*2.2;
+    const geo = new THREE.BoxGeometry(size, Math.max(0.2,size*0.4), size*0.7);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x7b7b7b });
+    const d = new THREE.Mesh(geo, mat);
+    d.position.set((Math.random()-0.5)*900, Math.random()*140 + 5, (Math.random()-0.5)*900);
     d.userData.velocity = new THREE.Vector3();
     debrisGroup.add(d);
     debrisParticles.push(d);
   }
+
+  // ensure tornado visuals scale boundedly
+  const visualScale = Math.max(0.5, Math.min(2.5, tornadoWidth / 50));
+  tornado.scale.set(visualScale, 1, visualScale);
+
+  // place supercell/wallCloud at tornado start so they aren't at origin visible unexpectedly
+  supercell.position.set(tornado.position.x, 120, tornado.position.z);
+  wallCloud.position.set(tornado.position.x, 90, tornado.position.z);
 }
 
-// Reset everything
+// ---- helpers ----
+function updateWindRadius(){
+  tornadoWindRadius = Math.max(60, tornadoWidth * 2); // minimum field
+  // but don't visually explode funnel: cap visual scale
+  const visualScale = Math.max(0.5, Math.min(2.5, tornadoWidth / 50));
+  tornado.scale.set(visualScale, 1, visualScale);
+}
+
+function spawnDebrisAt(worldPos, color=null, count=3){
+  // spawn a few debris pieces at worldPos
+  for(let i=0;i<count;i++){
+    // size random
+    const sx = 0.6 + Math.random()*2.6;
+    const geo = new THREE.BoxGeometry(sx, Math.max(0.2,sx*0.35), sx*0.6);
+    const mat = new THREE.MeshStandardMaterial({ color: color ? color.clone() : 0x7b7b7b });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(worldPos).add(new THREE.Vector3((Math.random()-0.5)*6, 2 + Math.random()*3, (Math.random()-0.5)*6));
+    m.userData.velocity = new THREE.Vector3((Math.random()-0.5)*2, 2 + Math.random()*3, (Math.random()-0.5)*2);
+    m.userData.life = 12 + Math.random()*10; // limit lifetime
+    debrisGroup.add(m);
+    debrisParticles.push(m);
+    // cap total debris to avoid explosion
+    if(debrisParticles.length > (performanceMode ? 400 : 900)) break;
+  }
+}
+
+// convert local child position to world and remove it from parent and spawn debris
+function removePartAndSpawn(partMesh){
+  const posWorld = new THREE.Vector3();
+  partMesh.getWorldPosition(posWorld);
+  // remove from parent (safe)
+  const parent = partMesh.parent;
+  if(parent) parent.remove(partMesh);
+  spawnDebrisAt(posWorld, partMesh.material && partMesh.material.color ? partMesh.material.color : null, 3);
+}
+
+// ---- damage & physics ----
+function applyDamageAndPhysics(delta){
+  // tornado center for fly-in forces (use lower mid point)
+  const tornadoCenter = new THREE.Vector3(tornado.position.x, 60, tornado.position.z);
+
+  // houses
+  houses.forEach(h => {
+    const parts = h.userData.parts;
+    const pos = h.position;
+    const dist = pos.distanceTo(tornadoCenter);
+    const proximity = Math.max(0, 1 - dist / tornadoWindRadius);
+
+    // damage only if wind is strong enough
+    if(windSpeed >= damageThreshold && proximity > 0.02){
+      // damage intensity scales with windSpeed over threshold and proximity
+      const intensity = ((windSpeed - damageThreshold) / (200 - damageThreshold)) * proximity;
+      h.userData.damageAccum += intensity * delta * 1.0; // accumulate over time
+
+      // when enough accumulated, remove a random roof tile (if any left) or base last
+      if(h.userData.damageAccum > 0.5){
+        const roofGroup = parts.roofGroup;
+        if(roofGroup && roofGroup.children.length > 0){
+          // pick random tile
+          const idx = Math.floor(Math.random() * roofGroup.children.length);
+          const tile = roofGroup.children[idx];
+          removePartAndSpawn(tile);
+          h.userData.removedParts.push(tile);
+        } else if(parts.base && parts.base.visible){
+          // remove base (big collapse)
+          const base = parts.base;
+          // spawn a few larger debris
+          removePartAndSpawn(base);
+        }
+        // reset accumulation with some randomness to make destruction varied in time
+        h.userData.damageAccum = Math.random() * 0.2;
+      }
+    } else {
+      // recover accumulation slowly when winds drop below threshold (prevents instant repeat)
+      h.userData.damageAccum = Math.max(0, h.userData.damageAccum - delta * 0.25);
+    }
+  });
+
+  // trees
+  trees.forEach(t => {
+    const pos = t.position;
+    const dist = pos.distanceTo(tornadoCenter);
+    const proximity = Math.max(0, 1 - dist / (tornadoWindRadius * 0.9));
+    if(windSpeed >= damageThreshold && proximity > 0.02){
+      const intensity = ((windSpeed - damageThreshold) / (200 - damageThreshold)) * proximity;
+      t.userData.damageAccum += intensity * delta * 1.2;
+      if(t.userData.damageAccum > 0.4){
+        // remove a random foliage piece if any left
+        const foliageGroup = t.userData.parts.foliageGroup;
+        if(foliageGroup && foliageGroup.children.length > 0){
+          const idx = Math.floor(Math.random()*foliageGroup.children.length);
+          const piece = foliageGroup.children[idx];
+          removePartAndSpawn(piece);
+          t.userData.removedParts.push(piece);
+        } else {
+          // if no foliage left, remove trunk (collapse)
+          const trunk = t.userData.parts.trunk;
+          if(trunk && trunk.visible){
+            removePartAndSpawn(trunk);
+          }
+        }
+        t.userData.damageAccum = Math.random() * 0.2;
+      }
+    } else {
+      t.userData.damageAccum = Math.max(0, t.userData.damageAccum - delta * 0.2);
+    }
+  });
+
+  // debris physics — swirl + suction + updraft
+  const time = performance.now() * 0.001;
+  const maxPullRadius = tornadoWindRadius * 1.6;
+  for(let i = debrisParticles.length - 1; i >= 0; i--){
+    const d = debrisParticles[i];
+    // lifetime removal if set
+    if(d.userData.life !== undefined){
+      d.userData.life -= delta;
+      if(d.userData.life <= 0){
+        debrisGroup.remove(d);
+        debrisParticles.splice(i, 1);
+        continue;
+      }
+    }
+
+    const dir = new THREE.Vector3().subVectors(tornadoCenter, d.position);
+    const dist = dir.length();
+    // if too far, apply small ambient drift
+    if(dist > maxPullRadius){
+      // slight gravity + settling
+      d.userData.velocity.y -= 9.8 * 0.02 * delta;
+      d.userData.velocity.multiplyScalar(0.995); // damping
+      d.position.addScaledVector(d.userData.velocity, delta * 60);
+      continue;
+    }
+
+    // within influence -> swirl + pull
+    // radial normalized (towards center)
+    const radial = dir.clone().normalize();
+    // tangential (perpendicular on XZ plane)
+    const tangential = new THREE.Vector3(-radial.z, 0, radial.x);
+    const proximity = Math.max(0, 1 - dist / maxPullRadius);
+
+    // Strength scales with windSpeed and proximity
+    const pull = 0.6 * (windSpeed / 120) * proximity; // how fast it pulls inward
+    const swirl = 0.35 * (1 + proximity * 2) * (windSpeed / 140); // tangential swirl
+    const updraft = 0.6 * (1 + proximity) * (windSpeed / 160);
+
+    // small time-varying wobble
+    const wobble = Math.sin(time * 6 + i) * 0.02;
+
+    // update velocity
+    d.userData.velocity.addScaledVector(radial, pull * delta * 200);       // pull inward
+    d.userData.velocity.addScaledVector(tangential, swirl * delta * 200);   // swirl
+    d.userData.velocity.y += (updraft + wobble) * delta * 60;              // upward lift
+    // damping
+    d.userData.velocity.multiplyScalar(0.995);
+
+    // move
+    d.position.addScaledVector(d.userData.velocity, delta * 60);
+
+    // if very close to center, consider ingested (remove)
+    if(dist < 8 && d.userData.life === undefined){
+      // small chance to keep some pieces orbiting a bit longer
+      if(Math.random() < 0.2) {
+        d.userData.life = 3 + Math.random()*4;
+      } else {
+        debrisGroup.remove(d);
+        debrisParticles.splice(i, 1);
+      }
+    }
+  }
+}
+
+// ---- lightning ----
+function maybeLightning(delta){
+  lightningTimer -= delta;
+  if(lightningTimer <= 0){
+    // next strike in 1..8s
+    lightningTimer = 1 + Math.random()*7;
+    if(Math.random() < 0.45){ // chance to actually flash
+      doLightningStrike();
+    }
+  }
+}
+function doLightningStrike(){
+  // origin roughly at wallCloud around tornado
+  const origin = new THREE.Vector3(
+    tornado.position.x + (Math.random()-0.5)*60,
+    tornado.position.y + 120 + Math.random()*40,
+    tornado.position.z + (Math.random()-0.5)*60
+  );
+  const strikeX = tornado.position.x + (Math.random()-0.5)*200;
+  const strikeZ = tornado.position.z + (Math.random()-0.5)*200;
+  const target = new THREE.Vector3(strikeX, 0, strikeZ);
+
+  const segments = 8;
+  const pts = [];
+  for(let i=0;i<=segments;i++){
+    const t = i/segments;
+    const y = origin.y * (1 - t); // descend to ground
+    const jitterX = (Math.random()-0.5) * 30 * (1 - t);
+    const jitterZ = (Math.random()-0.5) * 30 * (1 - t);
+    const x = origin.x + (target.x - origin.x) * t + jitterX;
+    const z = origin.z + (target.z - origin.z) * t + jitterZ;
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  const boltGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  const boltMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+  const bolt = new THREE.Line(boltGeo, boltMat);
+  scene.add(bolt);
+
+  // bright flash light near ground impact
+  const flash = new THREE.PointLight(0xffffff, 3.2, 900);
+  flash.position.copy(target).add(new THREE.Vector3(0, 40, 0));
+  scene.add(flash);
+
+  // remove quickly
+  setTimeout(()=>{
+    scene.remove(bolt);
+    scene.remove(flash);
+  }, 120 + Math.random()*120);
+}
+
+// ---- reset ----
 function resetAll(){
-  houses.forEach(h=>{
-    h.position.copy(h.userData.original.pos);
-    h.rotation.copy(h.userData.original.rotation);
-    h.children.forEach((c,i)=>{
-      let original = h.userData.original.children[i];
-      c.geometry.copy(original.geometry);
-      c.material.color.copy(original.material.color);
-    });
-    h.userData.damagedParts=[];
-  });
-  trees.forEach(t=>{
-    t.position.copy(t.userData.original.pos);
-    t.children.forEach((c,i)=>{
-      let original = t.userData.original.children[i];
-      c.geometry.copy(original.geometry);
-      c.material.color.copy(original.material.color);
-    });
-    t.userData.damagedParts=[];
-  });
-  debrisParticles.forEach(d=>debrisGroup.remove(d));
-  debrisParticles=[];
+  animating = false;
+
+  // reset tornado
+  tornado.position.copy(tornadoStart);
+  tornado.rotation.set(0,0,0);
+  tornado.scale.set(1,1,1);
+  tornadoWidth = Number(document.getElementById('widthSlider').value);
+  updateWindRadius();
+
+  // clear and recreate scene objects
+  houses.forEach(h => scene.remove(h));
+  houses.length = 0;
+  trees.forEach(t => scene.remove(t));
+  trees.length = 0;
+  debrisParticles.forEach(d => debrisGroup.remove(d));
+  debrisParticles.length = 0;
+
   setupSceneObjects();
 }
 
-// Spawn debris from destroyed object
-function spawnDebrisFromObject(obj){
-  obj.children.forEach(p=>{
-    if(Math.random()<0.5){
-      let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:p.material.color}));
-      d.position.copy(p.getWorldPosition(new THREE.Vector3()));
-      d.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
-      debrisGroup.add(d); debrisParticles.push(d);
-    }
-  });
-}
-
-// Animate loop
+// ---- main loop ----
 function animate(){
   requestAnimationFrame(animate);
+  const now = performance.now();
+  const delta = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
 
+  // move tornado when animating
+  const moveSpeed = tornadoSpeedMph * 0.06; // tuned mapping mph -> scene units
   if(animating){
-    // Tornado movement
-    tornado.position.x += tornadoSpeed;
-    tornado.rotation.y += 0.05;
-
-    let tornadoWindRadius = tornadoWidth*2;
-
-    // Houses damage
-    houses.forEach(h=>{
-      let dist = h.position.distanceTo(tornado.position);
-      if(dist < tornadoWindRadius){
-        let chance = Math.random()*windSpeed;
-        h.children.forEach(c=>{
-          if(chance>40 && !h.userData.damagedParts.includes(c)){
-            c.position.y -= Math.random()*1;
-            c.rotation.x += (Math.random()-0.5)*0.3;
-            c.rotation.z += (Math.random()-0.5)*0.3;
-            h.userData.damagedParts.push(c);
-            spawnDebrisFromObject(h);
-          }
-        });
-      }
-    });
-
-    // Trees damage
-    trees.forEach(t=>{
-      let dist = t.position.distanceTo(tornado.position);
-      if(dist < tornadoWindRadius){
-        let chance = Math.random()*windSpeed;
-        t.children.forEach(c=>{
-          if(chance>30 && !t.userData.damagedParts.includes(c)){
-            c.rotation.x += (Math.random()-0.5)*0.5;
-            c.rotation.z += (Math.random()-0.5)*0.5;
-            t.userData.damagedParts.push(c);
-            spawnDebrisFromObject(t);
-          }
-        });
-      }
-    });
-
-    // Debris movement
-    debrisParticles.forEach(d=>{
-      let dir = new THREE.Vector3().subVectors(tornado.position,d.position);
-      let dist = dir.length();
-      if(dist < tornadoWindRadius*2){
-        dir.normalize();
-        let strength = (windSpeed/50)*(1 - dist/(tornadoWindRadius*2));
-        d.userData.velocity.add(new THREE.Vector3(Math.sin(Date.now()*0.001)*0.02,0.05,Math.cos(Date.now()*0.001)*0.02));
-        d.userData.velocity.add(dir.multiplyScalar(0.3*strength));
-        d.position.add(d.userData.velocity);
-      }
-    });
-
-    // Lightning
-    lightningCooldown--;
-    if(lightningCooldown<=0 && Math.random()<0.01){
-      lightningCooldown = 60+Math.random()*100;
-      const lightning = new THREE.DirectionalLight(0xffffff,1);
-      lightning.position.set(Math.random()*500-250,300,Math.random()*500-250);
-      scene.add(lightning);
-      setTimeout(()=>scene.remove(lightning),100);
-    }
-
-    // Supercell & Wall cloud
-    supercell.position.set(tornado.position.x,120,tornado.position.z);
-    wallCloud.position.set(tornado.position.x,100,tornado.position.z);
+    tornado.position.x += moveSpeed * delta * 60;
+    // rotate visual faster when stronger winds
+    tornado.rotation.y += 0.04 + (windSpeed/200)*0.3;
   }
 
-  renderer.render(scene,camera);
+  // ensure supercell & wall cloud follow tornado (visuals)
+  supercell.position.lerp(new THREE.Vector3(tornado.position.x, tornado.position.y + 60, tornado.position.z), 0.05);
+  wallCloud.position.lerp(new THREE.Vector3(tornado.position.x, tornado.position.y + 30, tornado.position.z), 0.08);
+  supercell.rotation.y += 0.001 * (performanceMode ? 0.5 : 1.0) * (1 + windSpeed/150);
+
+  // apply damage & physics if animating
+  if(animating){
+    applyDamageAndPhysics(delta);
+  } else {
+    // still update lightweight debris physics for realism when not animating
+    for(let i = debrisParticles.length-1; i >= 0; i--){
+      const d = debrisParticles[i];
+      d.userData.velocity.y -= 9.8 * 0.02 * delta;
+      d.userData.velocity.multiplyScalar(0.995);
+      d.position.addScaledVector(d.userData.velocity, delta * 60);
+      if(d.userData.life !== undefined){
+        d.userData.life -= delta;
+        if(d.userData.life <= 0){
+          debrisGroup.remove(d);
+          debrisParticles.splice(i,1);
+        }
+      }
+    }
+  }
+
+  // lightning
+  maybeLightning(delta);
+
+  // render
+  renderer.render(scene, camera);
 }
+
+// initialize wind radius once
+updateWindRadius();
+
 </script>
 </body>
 </html>
