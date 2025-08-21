@@ -7,12 +7,11 @@
 <style>
   body { margin:0; overflow:hidden; font-family: Arial, sans-serif; background:#888;}
   #controls {
-    position:absolute; top:10px; left:10px; background: rgba(255,255,255,0.9);
+    position:absolute; top:10px; right:10px; background: rgba(255,255,255,0.9);
     padding:10px; border-radius:8px; z-index:10; max-width:250px;
   }
   #controls input { width:160px; }
   button { margin:5px 0; padding:5px 10px; }
-  #toggleControls { position:absolute; top:10px; right:10px; z-index:10; }
 </style>
 </head>
 <body>
@@ -24,28 +23,27 @@
   <input type="range" id="speedSlider" min="1" max="90" value="10"><br>
 
   <label>Tornado Width: <span id="widthValue">50</span></label><br>
-  <input type="range" id="widthSlider" min="10" max="2500" value="50"><br>
+  <input type="range" id="widthSlider" min="10" max="4160" value="50"><br>
 
   <label>Performance Mode:</label> <input type="checkbox" id="perfToggle" checked><br>
   <label>Phone Mode:</label> <input type="checkbox" id="phoneToggle"><br>
+  <button id="uiToggleBtn">Toggle UI</button><br>
 
   <button id="startBtn">Start</button>
   <button id="resetBtn">Reset</button>
 </div>
-<button id="toggleControls">Hide Controls</button>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
-
 let scene, camera, renderer;
-let tornado, tornadoParticles = [], debrisGroup = [];
-let houses = [], trees = [], roads = [], streetLights = [], powerLines = [], shelters = [];
-let animating = false;
-let windSpeed = 50, tornadoSpeed = 10, tornadoWidth = 50;
-let performanceMode = true, phoneMode = false;
-let ground, lightningCooldown = 0;
-let wallCloud, funnelCloud, dustParticles = [];
+let tornado, tornadoParticles=[], debrisGroup, debrisParticles=[], dustParticles=[], funnelCloud, wallCloud;
+let houses=[], trees=[], roads=[], streetLights=[], powerLines=[];
+let animating=false, windSpeed=50, tornadoSpeed=10, tornadoWidth=50;
+let performanceMode=true, phoneMode=false;
+let ground, lightningCooldown=0;
+let tornadoDamage=0;
 
+// UI
 const windSlider = document.getElementById("windSlider");
 const speedSlider = document.getElementById("speedSlider");
 const widthSlider = document.getElementById("widthSlider");
@@ -54,15 +52,17 @@ const speedValue = document.getElementById("speedValue");
 const widthValue = document.getElementById("widthValue");
 const perfToggle = document.getElementById("perfToggle");
 const phoneToggle = document.getElementById("phoneToggle");
-const toggleControlsBtn = document.getElementById("toggleControls");
+const uiToggleBtn = document.getElementById("uiToggleBtn");
+const controlsDiv = document.getElementById("controls");
 
-windSlider.oninput = ()=>{ windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); };
-speedSlider.oninput = ()=>{ speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value); };
-widthSlider.oninput = ()=>{ widthValue.textContent = widthSlider.value; tornadoWidth = Number(widthSlider.value); if(tornado) tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
-perfToggle.onchange = ()=>{ performanceMode = perfToggle.checked; setupSceneObjects(); };
-phoneToggle.onchange = ()=>{ phoneMode = phoneToggle.checked; setupSceneObjects(); };
-toggleControlsBtn.onclick = ()=>{ document.getElementById("controls").style.display = document.getElementById("controls").style.display==='none'?'block':'none'; };
+windSlider.oninput = ()=>{ windValue.textContent=windSlider.value; windSpeed=Number(windSlider.value); };
+speedSlider.oninput = ()=>{ speedValue.textContent=speedSlider.value; tornadoSpeed=Number(speedSlider.value); };
+widthSlider.oninput = ()=>{ widthValue.textContent=widthSlider.value; tornadoWidth=Number(widthSlider.value); tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
+perfToggle.onchange = ()=>{ performanceMode=perfToggle.checked; setupSceneObjects(); };
+phoneToggle.onchange = ()=>{ phoneMode=phoneToggle.checked; setupSceneObjects(); };
+uiToggleBtn.onclick = ()=>{ controlsDiv.style.display=(controlsDiv.style.display==='none'?'block':'none'); };
 
+// Initialize
 init();
 animate();
 
@@ -74,50 +74,57 @@ function init(){
   camera.position.set(0,200,400);
   camera.lookAt(0,0,0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
+  renderer = new THREE.WebGLRenderer({antialias:!performanceMode});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Lights
   scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1));
   const dirLight = new THREE.DirectionalLight(0xffffff,0.8);
   dirLight.position.set(-100,200,100);
   scene.add(dirLight);
 
   // Ground
-  const groundMat = new THREE.MeshPhongMaterial({color:0x2c3e2c});
-  ground = new THREE.Mesh(new THREE.PlaneGeometry(2000,2000), groundMat);
-  ground.rotation.x = -Math.PI/2;
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(2000,2000), new THREE.MeshPhongMaterial({color:0x2c3e2c}));
+  ground.rotation.x=-Math.PI/2;
   scene.add(ground);
 
   // Tornado
-  const torGeo = new THREE.CylinderGeometry(20,5,120,16,1,true);
-  const torMat = new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.7});
-  tornado = new THREE.Mesh(torGeo, torMat);
+  tornado = new THREE.Mesh(new THREE.CylinderGeometry(20,5,120,16,1,true),
+                            new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.7}));
   tornado.position.set(-400,60,0);
   scene.add(tornado);
 
-  // Funnel & Wall Clouds
-  const funnelGeo = new THREE.ConeGeometry(25,100,16,1,true);
-  const funnelMat = new THREE.MeshStandardMaterial({color:0x444444, transparent:true, opacity:0.6});
-  funnelCloud = new THREE.Mesh(funnelGeo, funnelMat);
-  funnelCloud.position.set(-400,100,0);
-  scene.add(funnelCloud);
+  // Funnel
+  funnelCloud = new THREE.Mesh(new THREE.ConeGeometry(60,150,16,true),
+                               new THREE.MeshStandardMaterial({color:0x333333, transparent:true, opacity:0.5}));
+  funnelCloud.position.y=75; scene.add(funnelCloud);
 
-  const wallGeo = new THREE.CylinderGeometry(60,60,20,32);
-  const wallMat = new THREE.MeshStandardMaterial({color:0x333333, transparent:true, opacity:0.5});
-  wallCloud = new THREE.Mesh(wallGeo, wallMat);
-  wallCloud.position.set(-400,150,0);
-  scene.add(wallCloud);
+  // Wall cloud
+  wallCloud = new THREE.Mesh(new THREE.CylinderGeometry(200,200,60,16,true),
+                             new THREE.MeshStandardMaterial({color:0x222222, transparent:true, opacity:0.3}));
+  wallCloud.position.y=30; scene.add(wallCloud);
 
-  debrisGroup = new THREE.Group();
-  scene.add(debrisGroup);
+  // Debris
+  debrisGroup = new THREE.Group(); scene.add(debrisGroup);
+  for(let i=0;i<200;i++){
+    let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:0x888888}));
+    d.position.set((Math.random()-0.5)*800,Math.random()*100,(Math.random()-0.5)*800);
+    d.userData.velocity = new THREE.Vector3();
+    debrisGroup.add(d); debrisParticles.push(d);
+  }
+
+  // Dust
+  for(let i=0;i<200;i++){
+    let d = new THREE.Mesh(new THREE.SphereGeometry(2,6,6), new THREE.MeshStandardMaterial({color:0xaaaaaa, transparent:true, opacity:0.4}));
+    d.position.set((Math.random()-0.5)*200,0,(Math.random()-0.5)*200);
+    dustParticles.push(d); scene.add(d);
+  }
 
   document.getElementById("startBtn").onclick = ()=>{ animating=true; resetScene(); };
   document.getElementById("resetBtn").onclick = ()=>{ animating=false; resetScene(); };
 
-  window.addEventListener("resize", ()=>{
-    camera.aspect = window.innerWidth/window.innerHeight;
+  window.addEventListener("resize",()=>{
+    camera.aspect=window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
@@ -126,51 +133,36 @@ function init(){
 }
 
 function setupSceneObjects(){
+  // Clear
   houses.forEach(h=>scene.remove(h)); houses=[];
   trees.forEach(t=>scene.remove(t)); trees=[];
-  debrisGroup.children.forEach(d=>debrisGroup.remove(d)); debrisGroup=[];
+  debrisParticles.forEach(d=>debrisGroup.remove(d)); debrisParticles=[];
   roads.forEach(r=>scene.remove(r)); roads=[];
   streetLights.forEach(l=>scene.remove(l)); streetLights=[];
   powerLines.forEach(p=>scene.remove(p)); powerLines=[];
-  shelters.forEach(s=>scene.remove(s)); shelters=[];
-  dustParticles.forEach(d=>scene.remove(d)); dustParticles=[];
 
   let houseCount = phoneMode?5:performanceMode?10:20;
   let treeCount = phoneMode?10:performanceMode?20:50;
-  let debrisCount = phoneMode?30:performanceMode?50:200;
-  let roadCount = phoneMode?5:performanceMode?10:20;
 
-  // Houses
   for(let i=0;i<houseCount;i++){
     let house = new THREE.Group();
     let base = new THREE.Mesh(new THREE.BoxGeometry(20,10,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
     let roof = new THREE.Mesh(new THREE.ConeGeometry(15,6,4), new THREE.MeshStandardMaterial({color:0x8b0000}));
-    roof.position.y=8;
-    house.add(base); house.add(roof);
-    house.position.set((Math.random()-0.5)*1500,5,(Math.random()-0.5)*1500);
-    house.userData.damagedParts=[];
+    roof.position.y=8; house.add(base); house.add(roof);
+    house.position.set((Math.random()-0.5)*1500,5,(Math.random()-0.5)*1500); house.userData.damagedParts=[];
     scene.add(house); houses.push(house);
 
     // Road
     let road = new THREE.Mesh(new THREE.PlaneGeometry(30,50), new THREE.MeshPhongMaterial({color:0x555555}));
-    road.rotation.x=-Math.PI/2; road.position.set(house.position.x,0,house.position.z-30);
-    scene.add(road); roads.push(road);
+    road.rotation.x=-Math.PI/2; road.position.set(house.position.x,0,house.position.z-30); scene.add(road); roads.push(road);
 
     // Streetlight
     let light = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,15,6), new THREE.MeshStandardMaterial({color:0xffff00}));
-    light.position.set(house.position.x+10,7.5,house.position.z-25);
-    scene.add(light); streetLights.push(light);
+    light.position.set(house.position.x+10,7.5,house.position.z-25); scene.add(light); streetLights.push(light);
 
     // Powerline
     let pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,10,6), new THREE.MeshStandardMaterial({color:0x888888}));
-    pole.position.set(house.position.x-10,5,house.position.z-25);
-    scene.add(pole); powerLines.push(pole);
-
-    // Shelter
-    let shelter = new THREE.Mesh(new THREE.BoxGeometry(15,8,15), new THREE.MeshStandardMaterial({color:0x5555ff}));
-    shelter.position.set(house.position.x+5,4,shelter.position.z+5);
-    shelter.userData.maxWind = Math.random()<0.9?209:243;
-    scene.add(shelter); shelters.push(shelter);
+    pole.position.set(house.position.x-10,5,house.position.z-25); scene.add(pole); powerLines.push(pole);
   }
 
   // Trees
@@ -179,31 +171,13 @@ function setupSceneObjects(){
     let leaves = new THREE.Mesh(new THREE.ConeGeometry(3,10,8), new THREE.MeshStandardMaterial({color:0x228B22}));
     let tree = new THREE.Group(); trunk.position.y=2.5; leaves.position.y=8;
     tree.add(trunk); tree.add(leaves);
-    tree.position.set((Math.random()-0.5)*1500,0,(Math.random()-0.5)*1500);
-    tree.userData.damagedParts=[];
+    tree.position.set((Math.random()-0.5)*1500,0,(Math.random()-0.5)*1500); tree.userData.damagedParts=[];
     scene.add(tree); trees.push(tree);
-  }
-
-  // Debris
-  for(let i=0;i<debrisCount;i++){
-    let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:0x888888}));
-    d.position.set((Math.random()-0.5)*800,Math.random()*100,(Math.random()-0.5)*800);
-    d.userData.velocity = new THREE.Vector3();
-    debrisGroup.add(d); debrisParticles.push(d);
-  }
-
-  // Dust particles
-  for(let i=0;i<debrisCount;i++){
-    let d = new THREE.Mesh(new THREE.SphereGeometry(0.5,4,4), new THREE.MeshStandardMaterial({color:0xaaaaaa, transparent:true, opacity:0.5}));
-    d.position.set((Math.random()-0.5)*800,0,(Math.random()-0.5)*800);
-    dustParticles.push(d); scene.add(d);
   }
 }
 
 function resetScene(){
   tornado.position.set(-400,60,0);
-  funnelCloud.position.set(-400,100,0);
-  wallCloud.position.set(-400,150,0);
   houses.forEach(h=>h.userData.damagedParts=[]);
   trees.forEach(t=>t.userData.damagedParts=[]);
   debrisParticles.forEach(d=>d.userData.velocity.set(0,0,0));
@@ -211,28 +185,31 @@ function resetScene(){
 
 function animate(){
   requestAnimationFrame(animate);
-
   if(animating){
-    tornado.position.x += tornadoSpeed;
-    tornado.rotation.y += 0.05;
+    tornado.position.x+=tornadoSpeed;
+    tornado.rotation.y+=0.05;
 
-    funnelCloud.position.x = tornado.position.x;
-    wallCloud.position.x = tornado.position.x;
-    funnelCloud.position.z = tornado.position.z;
-    wallCloud.position.z = tornado.position.z;
+    funnelCloud.position.x=tornado.position.x; funnelCloud.position.z=tornado.position.z;
+    wallCloud.position.x=tornado.position.x; wallCloud.position.z=tornado.position.z;
 
-    // Houses damage
+    // Dust
+    dustParticles.forEach(d=>{
+      let angle=Math.random()*Math.PI*2;
+      let radius=tornadoWidth*0.5+Math.random()*tornadoWidth*0.5;
+      d.position.x=tornado.position.x+radius*Math.cos(angle);
+      d.position.z=tornado.position.z+radius*Math.sin(angle);
+      d.position.y=Math.random()*20;
+    });
+
+    // Destruction
     houses.forEach(h=>{
-      let dist = h.position.distanceTo(tornado.position);
+      let dist=h.position.distanceTo(tornado.position);
       if(dist<tornadoWidth*2){
         h.children.forEach(c=>{
           if(Math.random()*windSpeed>30 && !h.userData.damagedParts.includes(c)){
-            c.position.y -= Math.random()*2;
-            c.rotation.x += (Math.random()-0.5)*0.5;
-            c.rotation.z += (Math.random()-0.5)*0.5;
+            c.position.y-=Math.random()*2; c.rotation.x+=(Math.random()-0.5)*0.5; c.rotation.z+=(Math.random()-0.5)*0.5;
             h.userData.damagedParts.push(c);
 
-            // debris spawn
             let debris = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:c.material.color}));
             debris.position.copy(c.getWorldPosition(new THREE.Vector3()));
             debris.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
@@ -242,14 +219,12 @@ function animate(){
       }
     });
 
-    // Trees damage
     trees.forEach(t=>{
-      let dist = t.position.distanceTo(tornado.position);
+      let dist=t.position.distanceTo(tornado.position);
       if(dist<tornadoWidth*2){
         t.children.forEach(c=>{
           if(Math.random()*windSpeed>25 && !t.userData.damagedParts.includes(c)){
-            c.rotation.x += (Math.random()-0.5)*0.5;
-            c.rotation.z += (Math.random()-0.5)*0.5;
+            c.rotation.x+=(Math.random()-0.5)*0.5; c.rotation.z+=(Math.random()-0.5)*0.5;
             t.userData.damagedParts.push(c);
 
             let debris = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:c.material.color}));
@@ -261,43 +236,12 @@ function animate(){
       }
     });
 
-    // Debris movement (circulate around tornado)
+    // Debris circulate
     debrisParticles.forEach(d=>{
-      let dir = new THREE.Vector3().subVectors(d.position, tornado.position);
-      let dist = dir.length();
-      if(dist<tornadoWidth*4){
-        dir.normalize();
-        let angle = 0.05 + windSpeed/500;
-        let cosA = Math.cos(angle), sinA = Math.sin(angle);
-        let x = dir.x * cosA - dir.z * sinA;
-        let z = dir.x * sinA + dir.z * cosA;
-        d.position.x = tornado.position.x + x*dist;
-        d.position.z = tornado.position.z + z*dist;
-        d.position.y += d.userData.velocity.y;
-        d.userData.velocity.y -= 0.01;
-      }
+      let dir=new THREE.Vector3().subVectors(d.position,tornado.position).normalize();
+      let cross=new THREE.Vector3().crossVectors(dir,new THREE.Vector3(0,1,0)).normalize();
+      d.userData.velocity.add(cross.multiplyScalar(0.2)); d.userData.velocity.y-=0.01; d.position.add(d.userData.velocity);
     });
-
-    // Dust follow tornado
-    dustParticles.forEach(d=>{
-      let dx = tornado.position.x + (Math.random()-0.5)*tornadoWidth*2;
-      let dz = tornado.position.z + (Math.random()-0.5)*tornadoWidth*2;
-      d.position.set(dx,1, dz);
-    });
-
-    // Lightning strikes
-    if(lightningCooldown<=0 && Math.random()*1000<5){
-      const light = new THREE.PointLight(0xffffff,2,300);
-      light.position.set(tornado.position.x + (Math.random()-0.5)*200,200,tornado.position.z + (Math.random()-0.5)*200);
-      scene.add(light);
-      setTimeout(()=>{scene.remove(light)},200);
-      lightningCooldown=50;
-    }
-    lightningCooldown--;
-
-    // Ground scour
-    let intensity = Math.min(windSpeed/200,1);
-    ground.material.color.setRGB(0.17+0.2*intensity,0.24+0.2*intensity,0.17);
   }
 
   renderer.render(scene,camera);
