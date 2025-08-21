@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Tornado Simulator — Realistic Funnel, Scour, Procedural Damage</title>
+<title>Tornado Simulator — Supercell Culled</title>
 <style>
   html,body{height:100%;margin:0;background:#333}
   body{font-family:Inter,Arial,sans-serif;overflow:hidden}
@@ -39,35 +39,32 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
 /*
-  index.html implementing:
-   - Realistic funnel visuals (rings + particle swirl) with rotation
-   - Ground scour canvas overlay that darkens soil near funnel (strength scales with wind)
-   - Localized wall-cloud (base of supercell) that does not block view
-   - Houses built from blocks; trees destructible piece-by-piece
-   - Procedural continuous damage while wind >= damageThreshold (75 mph)
-   - Debris spawns from removed blocks and is sucked into funnel (swirl + updraft + ingestion)
-   - Tornado speed mapping tuned so 10mph is slow
-   - Performance mode auto-detection + toggle
+  Culled supercell — everything else unchanged:
+  - Realistic funnel (rings + particle swirl)
+  - Wall cloud base (low)
+  - Ground scour overlay
+  - Procedural damage, debris spawn & ingestion
+  - Lightning, camera follow, performance mode
 */
 
 let scene, camera, renderer;
 let tornado, innerPoints;
-let tornadoStart = { x: -400, y: 260, z: 0 };
+const tornadoStart = { x:-400, y:260, z:0 };
 let debrisGroup;
 let houses = [], trees = [], debris = [];
 let wallCloud;
 let animating = false, dropping = false;
 
-let windSpeed = 80;           // mph (UI)
-let tornadoSpeedMph = 10;     // mph (UI) default slower per your request
-let tornadoWidth = 60;        // UI
-let tornadoWindRadius = 200;  // computed
-const damageThreshold = 75;   // only damage while wind >= this
+let windSpeed = 80;
+let tornadoSpeedMph = 10;
+let tornadoWidth = 60;
+let tornadoWindRadius = 200;
+const damageThreshold = 75;
 let performanceMode = true;
 let lastTime = performance.now();
 let lightningTimer = 0;
 
-// UI elements
+// UI
 const windSlider = document.getElementById('windSlider');
 const speedSlider = document.getElementById('speedSlider');
 const widthSlider = document.getElementById('widthSlider');
@@ -82,20 +79,18 @@ speedSlider.oninput = () => { tornadoSpeedMph = Number(speedSlider.value); speed
 widthSlider.oninput = () => { tornadoWidth = Number(widthSlider.value); widthValue.textContent = widthSlider.value; updateWindRadius(); adjustTornadoScale(); paintScour(); };
 perfToggle.onchange = () => { performanceMode = perfToggle.checked; applyPerformanceMode(); rebuildScene(); };
 
-// Start / Reset
 document.getElementById('startBtn').onclick = startDrop;
 document.getElementById('resetBtn').onclick = resetAll;
 
-// auto performance detection
-function detectAutoPerf(){
+// auto perf detection
+(function detectAutoPerf(){
   const mem = navigator.deviceMemory || 4;
   const ua = navigator.userAgent || '';
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
   performanceMode = (mem <= 2 || isMobile);
   perfToggle.checked = performanceMode;
   perfState.textContent = performanceMode ? 'ON' : 'OFF';
-}
-detectAutoPerf();
+})();
 
 // --- THREE init ---
 init();
@@ -107,8 +102,8 @@ function init(){
   scene.fog = new THREE.Fog(0x2b2b2f, 800, 4200);
 
   camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 6000);
-  camera.position.set(0, 240, 480);
-  camera.lookAt(0, 60, 0);
+  camera.position.set(0,240,480);
+  camera.lookAt(0,60,0);
 
   renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
   renderer.setSize(innerWidth, innerHeight);
@@ -116,31 +111,28 @@ function init(){
   document.body.appendChild(renderer.domElement);
 
   window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
+    camera.aspect = innerWidth/innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
 
-  // lighting: darker, stormy feel but not full blackout
-  const hemi = new THREE.HemisphereLight(0x6b6d73, 0x222222, 0.7);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xddddff, 0.45);
-  sun.position.set(-200, 300, 160);
-  scene.add(sun);
+  // lighting
+  const hemi = new THREE.HemisphereLight(0x6b6d73, 0x222222, 0.7); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xddddff, 0.45); sun.position.set(-200,300,160); scene.add(sun);
 
-  // ground (darker green)
+  // ground
   const groundMat = new THREE.MeshPhongMaterial({ color: 0x334f33 });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), groundMat);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000,3000), groundMat);
   ground.rotation.x = -Math.PI/2;
   scene.add(ground);
 
-  // dynamic scour overlay
+  // scour overlay
   createScourCanvas();
 
-  // tornado visual: stacked rings + inner points
+  // tornado visuals
   createTornadoVisual();
 
-  // localized wall cloud/base-of-supercell (low, small so it won't block)
+  // wall cloud (low localized base)
   createWallCloud();
 
   // debris group
@@ -153,10 +145,9 @@ function init(){
   paintScour();
 }
 
-// --- tornado visual ---
+// Tornado visuals: stacked rings + inner points
 function createTornadoVisual(){
   tornado = new THREE.Group();
-
   const rings = performanceMode ? 20 : 36;
   for(let i=0;i<rings;i++){
     const R = Math.max(1, 38 - i*1.05);
@@ -165,23 +156,22 @@ function createTornadoVisual(){
     geo.rotateX(Math.PI/2);
     const y = (rings - i) * 5;
     geo.translate(0, y, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x222225, transparent: true, opacity: 0.6 - (i/rings)*0.45, side: THREE.DoubleSide });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x222225, transparent:true, opacity: 0.6 - (i/rings)*0.45, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(geo, mat);
     ring.userData.i = i;
     tornado.add(ring);
   }
-
-  // inner swirling particles (Points)
+  // inner points
   const pCount = performanceMode ? 400 : 1200;
-  const pos = new Float32Array(pCount * 3);
+  const pos = new Float32Array(pCount*3);
   for(let i=0;i<pCount;i++){
-    pos[i*3+0] = (Math.random()-0.5) * 20;
-    pos[i*3+1] = Math.random() * 200;
-    pos[i*3+2] = (Math.random()-0.5) * 20;
+    pos[i*3+0] = (Math.random()-0.5)*20;
+    pos[i*3+1] = Math.random()*200;
+    pos[i*3+2] = (Math.random()-0.5)*20;
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pm = new THREE.PointsMaterial({ size: performanceMode ? 1.1 : 1.8, color: 0xaaaaaa, transparent:true, opacity:0.95 });
+  const pm = new THREE.PointsMaterial({ size: performanceMode ? 1.1 : 1.8, color:0xaaaaaa, transparent:true, opacity:0.95 });
   innerPoints = new THREE.Points(g, pm);
   tornado.add(innerPoints);
 
@@ -189,20 +179,20 @@ function createTornadoVisual(){
   scene.add(tornado);
 }
 
-// --- wall cloud (small & low) ---
+// Wall cloud (kept low so it won't block view)
 function createWallCloud(){
   if(wallCloud) scene.remove(wallCloud);
   wallCloud = new THREE.Group();
   const g = new THREE.CylinderGeometry(120, 220, 40, 18, 1, true);
-  g.translate(0, 20, 0);
-  const mat = new THREE.MeshLambertMaterial({ color: 0x1d1d20, transparent: true, opacity: 0.42, side: THREE.DoubleSide });
+  g.translate(0,20,0);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x1d1d20, transparent:true, opacity:0.42, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(g, mat);
   wallCloud.add(mesh);
   wallCloud.position.set(tornadoStart.x, 100, tornadoStart.z);
   scene.add(wallCloud);
 }
 
-// --- scour canvas overlay (dynamic) ---
+// Scour overlay (canvas)
 let scourCanvas, scourTexture, scourMesh;
 function createScourCanvas(){
   const SIZE = 2048;
@@ -210,49 +200,44 @@ function createScourCanvas(){
   scourCanvas.width = SIZE; scourCanvas.height = SIZE;
   scourTexture = new THREE.CanvasTexture(scourCanvas);
   scourTexture.wrapS = scourTexture.wrapT = THREE.ClampToEdgeWrapping;
-  const mat = new THREE.MeshBasicMaterial({ map: scourTexture, transparent: true, opacity: 1, depthWrite: false });
-  const plane = new THREE.PlaneGeometry(3000, 3000);
+  const mat = new THREE.MeshBasicMaterial({ map: scourTexture, transparent:true, opacity:1, depthWrite:false });
+  const plane = new THREE.PlaneGeometry(3000,3000);
   scourMesh = new THREE.Mesh(plane, mat);
   scourMesh.rotation.x = -Math.PI/2;
-  scourMesh.position.y = 0.02; // slightly above ground to avoid z-fighting
+  scourMesh.position.y = 0.02;
   scene.add(scourMesh);
   paintScour();
 }
 
-// paint scour based on tornado position and wind strength
 function paintScour(){
   if(!scourCanvas) return;
   const ctx = scourCanvas.getContext('2d');
-  ctx.clearRect(0,0,scourCanvas.width,scourCanvas.height);
-  // map tornado world -> canvas coords
+  ctx.clearRect(0,0,scourCanvas.width, scourCanvas.height);
   const mapSize = 3000;
   const cx = (scourCanvas.width/2) + (tornado.position.x / mapSize) * scourCanvas.width;
   const cy = (scourCanvas.height/2) - (tornado.position.z / mapSize) * scourCanvas.height;
-  // radius scaled by tornadoWindRadius and windSpeed
   const baseRadius = Math.max(120, (tornadoWindRadius / mapSize) * scourCanvas.width * (1 + windSpeed / 140));
-  // gradient: darkest at center
   const innerAlpha = Math.min(0.95, (windSpeed / 220) * 1.6);
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius);
   grad.addColorStop(0, `rgba(59,34,8,${innerAlpha})`);
   grad.addColorStop(0.35, `rgba(90,58,29,${innerAlpha*0.66})`);
   grad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = grad;
-  ctx.fillRect(0,0,scourCanvas.width,scourCanvas.height);
+  ctx.fillRect(0,0,scourCanvas.width, scourCanvas.height);
   scourTexture.needsUpdate = true;
 }
 
-// --- scene population: houses, trees, ambient debris ---
+// Rebuild scene (houses, trees, ambient debris)
 function rebuildScene(){
-  // remove old
-  houses.forEach(h => scene.remove(h)); houses = [];
-  trees.forEach(t => scene.remove(t)); trees = [];
-  debris.forEach(d => debrisGroup.remove(d)); debris = [];
+  houses.forEach(h=>scene.remove(h)); houses = [];
+  trees.forEach(t=>scene.remove(t)); trees = [];
+  debris.forEach(d=>debrisGroup.remove(d)); debris = [];
 
   const houseCount = performanceMode ? 8 : 18;
   const treeCount = performanceMode ? 24 : 70;
   const ambientDebris = performanceMode ? 60 : 240;
 
-  // Houses made from bricks & roof tiles for procedural destruction
+  // Houses (bricks + roof tiles)
   for(let i=0;i<houseCount;i++){
     const house = new THREE.Group();
     const baseGroup = new THREE.Group();
@@ -269,36 +254,32 @@ function rebuildScene(){
     }
     house.add(baseGroup);
 
-    // roof tiles
-    const roofGroup = new THREE.Group();
-    const tX = 6, tZ = 4;
-    for(let tx=0; tx<tX; tx++){
-      for(let tz=0; tz<tZ; tz++){
-        const tile = new THREE.Mesh(new THREE.BoxGeometry(4, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x5e1515 }));
-        tile.position.set((tx-(tX-1)/2)*4.2, H+1.6 + Math.random()*0.2, (tz-(tZ-1)/2)*6.2);
-        roofGroup.add(tile);
+    const roof = new THREE.Group();
+    const tx = 6, tz = 4;
+    for(let ix=0; ix<tx; ix++){
+      for(let iz=0; iz<tz; iz++){
+        const tile = new THREE.Mesh(new THREE.BoxGeometry(4,1.8,6), new THREE.MeshStandardMaterial({ color: 0x5e1515 }));
+        tile.position.set((ix-(tx-1)/2)*4.2, H+1.6 + Math.random()*0.2, (iz-(tz-1)/2)*6.2);
+        roof.add(tile);
       }
     }
-    house.add(roofGroup);
-
-    house.userData = { baseGroup, roofGroup, damageAccum: 0 };
+    house.add(roof);
+    house.userData = { baseGroup, roofGroup: roof, damageAccum: 0 };
     house.position.set((Math.random()-0.5)*1400, 0, (Math.random()-0.5)*1400);
     scene.add(house);
     houses.push(house);
   }
 
-  // Trees built from trunk + multiple foliage pieces
+  // Trees
   for(let i=0;i<treeCount;i++){
     const tree = new THREE.Group();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.1,5,6), new THREE.MeshStandardMaterial({ color: 0x6b3f2a }));
-    trunk.position.y = 2.5;
-    tree.add(trunk);
+    trunk.position.y = 2.5; tree.add(trunk);
     const foliage = new THREE.Group();
     const layers = performanceMode ? 2 : 4;
     for(let l=0;l<layers;l++){
       const cone = new THREE.Mesh(new THREE.ConeGeometry(3 + l*1.1, 6 + l*1.0, 8), new THREE.MeshStandardMaterial({ color: 0x1f7a1f }));
-      cone.position.y = 6 + l * 2.6;
-      foliage.add(cone);
+      cone.position.y = 6 + l*2.6; foliage.add(cone);
     }
     tree.add(foliage);
     tree.userData = { trunk, foliageGroup: foliage, damageAccum: 0 };
@@ -307,12 +288,12 @@ function rebuildScene(){
     trees.push(tree);
   }
 
-  // ambient debris
+  // Ambient debris
   for(let i=0;i<ambientDebris;i++){
     const s = 0.6 + Math.random()*2.4;
     const g = new THREE.BoxGeometry(s, Math.max(0.2,s*0.35), s*0.7);
     const m = new THREE.MeshStandardMaterial({ color: 0x7b7b7b });
-    const p = new THREE.Mesh(g, m);
+    const p = new THREE.Mesh(g,m);
     p.position.set((Math.random()-0.5)*900, Math.random()*120 + 5, (Math.random()-0.5)*900);
     p.userData = { velocity: new THREE.Vector3(), life: undefined };
     debrisGroup.add(p);
@@ -324,36 +305,33 @@ function rebuildScene(){
   paintScour();
 }
 
-// --- helper: remove piece and spawn debris pieces ---
+// Spawn debris from mesh
 function spawnDebrisFromMesh(mesh, count=3){
   const pos = new THREE.Vector3();
   mesh.getWorldPosition(pos);
   for(let i=0;i<count;i++){
     const s = 0.5 + Math.random()*2.2;
     const g = new THREE.BoxGeometry(s, Math.max(0.2,s*0.3), s*0.6);
-    const m = mesh.material ? mesh.material.clone() : new THREE.MeshStandardMaterial({ color: 0x7b7b7b });
-    const piece = new THREE.Mesh(g, m);
-    piece.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*6, 2 + Math.random()*3, (Math.random()-0.5)*6));
-    piece.userData = { velocity: new THREE.Vector3((Math.random()-0.5)*2, 2 + Math.random()*3, (Math.random()-0.5)*2), life: 8 + Math.random()*8 };
-    debrisGroup.add(piece);
-    debris.push(piece);
+    const m = mesh.material ? mesh.material.clone() : new THREE.MeshStandardMaterial({ color:0x7b7b7b });
+    const p = new THREE.Mesh(g,m);
+    p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*6, 2 + Math.random()*3, (Math.random()-0.5)*6));
+    p.userData = { velocity: new THREE.Vector3((Math.random()-0.5)*2, 2 + Math.random()*3, (Math.random()-0.5)*2), life: 8 + Math.random()*8 };
+    debrisGroup.add(p); debris.push(p);
     if(debris.length > (performanceMode ? 800 : 2000)) break;
   }
 }
 
-// --- remove child safely and spawn debris ---
+// Remove child and spawn debris
 function removeChildAndSpawn(parent, child){
   if(!parent || !child) return;
-  const world = new THREE.Vector3();
-  child.getWorldPosition(world);
   parent.remove(child);
   spawnDebrisFromMesh(child, 3 + Math.floor(Math.random()*4));
 }
 
-// --- damage & debris physics (called every frame when animating) ---
+// Damage & physics
 function applyDamageAndPhysics(delta){
   const center = new THREE.Vector3(tornado.position.x, 60, tornado.position.z);
-  // Houses: continuous damage while windSpeed >= damageThreshold
+
   houses.forEach(h => {
     const dist = h.position.distanceTo(center);
     const prox = Math.max(0, 1 - dist / tornadoWindRadius);
@@ -361,7 +339,6 @@ function applyDamageAndPhysics(delta){
       const intensity = ((windSpeed - damageThreshold) / (200 - damageThreshold + 0.0001)) * prox;
       h.userData.damageAccum = (h.userData.damageAccum || 0) + intensity * delta * (1 + Math.random()*0.8);
       if(h.userData.damageAccum > 0.5){
-        // remove roof tile first, else remove a random brick
         const roof = h.userData.roofGroup;
         if(roof && roof.children.length > 0){
           const idx = Math.floor(Math.random() * roof.children.length);
@@ -375,14 +352,13 @@ function applyDamageAndPhysics(delta){
             removeChildAndSpawn(base, brick);
           }
         }
-        h.userData.damageAccum = Math.random()*0.2;
+        h.userData.damageAccum = Math.random()*0.25;
       }
     } else {
       h.userData.damageAccum = Math.max(0, (h.userData.damageAccum || 0) - delta * 0.15);
     }
   });
 
-  // Trees: remove foliage pieces then trunk collapse
   trees.forEach(t => {
     const dist = t.position.distanceTo(center);
     const prox = Math.max(0, 1 - dist / (tornadoWindRadius * 0.95));
@@ -399,30 +375,25 @@ function applyDamageAndPhysics(delta){
           const trunk = t.userData.trunk;
           if(trunk && trunk.parent) removeChildAndSpawn(t, trunk);
         }
-        t.userData.damageAccum = Math.random() * 0.2;
+        t.userData.damageAccum = Math.random()*0.2;
       }
     } else {
       t.userData.damageAccum = Math.max(0, (t.userData.damageAccum || 0) - delta * 0.14);
     }
   });
 
-  // Debris physics: swirl + pull + updraft + ingestion
+  // debris physics
   const tNow = performance.now() * 0.001;
   const maxPull = tornadoWindRadius * 1.6;
-  for(let i = debris.length - 1; i >= 0; i--){
+  for(let i=debris.length-1;i>=0;i--){
     const p = debris[i];
     if(p.userData.life !== undefined){
       p.userData.life -= delta;
-      if(p.userData.life <= 0){
-        debrisGroup.remove(p);
-        debris.splice(i, 1);
-        continue;
-      }
+      if(p.userData.life <= 0){ debrisGroup.remove(p); debris.splice(i,1); continue; }
     }
     const dir = new THREE.Vector3().subVectors(center, p.position);
     const dist = dir.length();
     if(dist > maxPull){
-      // gentle settling
       p.userData.velocity.y -= 9.8 * 0.018 * delta;
       p.userData.velocity.multiplyScalar(0.995);
       p.position.addScaledVector(p.userData.velocity, delta * 60);
@@ -440,19 +411,14 @@ function applyDamageAndPhysics(delta){
     p.userData.velocity.y += (up + wobble) * delta * 60;
     p.userData.velocity.multiplyScalar(0.993);
     p.position.addScaledVector(p.userData.velocity, delta * 60);
-    // ingestion
     if(dist < 8){
-      if(Math.random() < 0.25){
-        p.userData.life = 3 + Math.random()*4;
-      } else {
-        debrisGroup.remove(p);
-        debris.splice(i, 1);
-      }
+      if(Math.random() < 0.25) p.userData.life = 3 + Math.random()*4;
+      else { debrisGroup.remove(p); debris.splice(i,1); }
     }
   }
 }
 
-// --- lightning (originates from wallCloud region) ---
+// Lightning (from wall cloud area)
 function maybeLightning(delta){
   lightningTimer -= delta;
   if(lightningTimer <= 0){
@@ -471,8 +437,7 @@ function doLightning(){
     0,
     tornado.position.z + (Math.random()-0.5)*600
   );
-  const seg = 8;
-  const pts = [];
+  const seg = 8; const pts = [];
   for(let i=0;i<=seg;i++){
     const t = i/seg;
     const y = origin.y * (1 - t);
@@ -490,20 +455,15 @@ function doLightning(){
   setTimeout(()=>{ scene.remove(bolt); scene.remove(flash); }, 90 + Math.random()*150);
 }
 
-// --- funnel drop (user pressed start) ---
+// Funnel drop
 function startDrop(){
   if(dropping || animating) return;
-  dropping = true;
-  animating = false;
+  dropping = true; animating = false;
   tornado.position.set(tornadoStart.x, tornadoStart.y, tornadoStart.z);
-  // animate drop
-  const duration = 1100;
-  const start = performance.now();
-  const fromY = tornadoStart.y;
-  const toY = 60;
+  const duration = 1100, start = performance.now(), fromY = tornadoStart.y, toY = 60;
   (function step(now){
     const t = Math.min(1, (now - start) / duration);
-    const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    const e = 1 - Math.pow(1 - t, 3);
     tornado.position.y = fromY * (1 - e) + toY * e;
     tornado.children.forEach((r, idx) => r.rotation.y += 0.03 + idx*0.001);
     if(t < 1) requestAnimationFrame(step);
@@ -511,38 +471,27 @@ function startDrop(){
   })(performance.now());
 }
 
-// --- reset ---
+// Reset
 function resetAll(){
   animating = false; dropping = false;
   tornado.position.set(tornadoStart.x, tornadoStart.y, tornadoStart.z);
   tornado.rotation.set(0,0,0);
-  // remove all houses/trees/debris and rebuild
   houses.forEach(h => scene.remove(h)); houses = [];
   trees.forEach(t => scene.remove(t)); trees = [];
   debris.forEach(d => debrisGroup.remove(d)); debris = [];
-  // clear scour canvas
-  const ctx = scourCanvas.getContext('2d');
-  ctx.clearRect(0,0,scourCanvas.width, scourCanvas.height);
+  const ctx = scourCanvas.getContext('2d'); ctx.clearRect(0,0,scourCanvas.width, scourCanvas.height);
   scourTexture.needsUpdate = true;
   rebuildScene();
 }
 
-// speed mapping: convert mph to scene units per second (tuned)
-function mphToUnitsPerSec(mph){
-  // slower mapping: 1 mph => 0.02 units/sec (so 10mph => 0.2 units/sec)
-  return mph * 0.02;
-}
+// Speed mapping (mph -> units/sec)
+function mphToUnitsPerSec(mph){ return mph * 0.02; }
 
-// update wind radius from width & wind speed
-function updateWindRadius(){
-  tornadoWindRadius = Math.max(80, tornadoWidth * 2.2 * (1 + windSpeed / 140));
-}
-
-// adjust visual scale (bounded)
+// Update radius and adjust visuals
+function updateWindRadius(){ tornadoWindRadius = Math.max(80, tornadoWidth * 2.2 * (1 + windSpeed / 140)); }
 function adjustTornadoScale(){
   const s = Math.max(0.5, Math.min(3.2, tornadoWidth / 50));
-  tornado.scale.set(s, 1, s);
-  // adjust inner point spread
+  tornado.scale.set(s,1,s);
   if(innerPoints){
     const pos = innerPoints.geometry.attributes.position.array;
     for(let i=0;i<pos.length/3;i++){
@@ -554,33 +503,21 @@ function adjustTornadoScale(){
   }
 }
 
-// --- rebuild scene wrapper ---
+// Rebuild helper wrapper (clean)
 function rebuildScene(){
-  rebuildSceneInternal();
-}
-function rebuildSceneInternal(){
-  rebuildSceneInternalImpl();
-}
-// due to function hoisting we'll implement directly:
-function rebuildSceneInternalImpl(){
-  // call actual rebuild
-  rebuildScene();
-}
-// The above wrapper was to match naming in earlier versions; here's the real rebuild:
-function rebuildScene(){
-  // remove old
-  houses.forEach(h => scene.remove(h)); houses = [];
-  trees.forEach(t => scene.remove(t)); trees = [];
-  debris.forEach(d => debrisGroup.remove(d)); debris = [];
+  // clear existing
+  houses.forEach(h=>scene.remove(h)); houses = [];
+  trees.forEach(t=>scene.remove(t)); trees = [];
+  debris.forEach(d=>debrisGroup.remove(d)); debris = [];
 
   const houseCount = performanceMode ? 8 : 18;
   const treeCount = performanceMode ? 24 : 70;
   const ambientDebris = performanceMode ? 60 : 240;
 
-  // houses
+  // Houses
   for(let i=0;i<houseCount;i++){
     const house = new THREE.Group();
-    const base = new THREE.Group();
+    const baseGroup = new THREE.Group();
     const W = 18, H = 10, D = 14;
     const brick = 3;
     const xs = Math.max(2, Math.floor(W/brick));
@@ -589,10 +526,10 @@ function rebuildScene(){
       for(let zi=0; zi<zs; zi++){
         const b = new THREE.Mesh(new THREE.BoxGeometry(brick, H-2, brick), new THREE.MeshStandardMaterial({ color: 0xb36a42 }));
         b.position.set((xi - (xs-1)/2) * brick, (H/2)-1, (zi - (zs-1)/2) * brick);
-        base.add(b);
+        baseGroup.add(b);
       }
     }
-    house.add(base);
+    house.add(baseGroup);
     const roof = new THREE.Group();
     const tx = 6, tz = 4;
     for(let ix=0; ix<tx; ix++){
@@ -603,24 +540,22 @@ function rebuildScene(){
       }
     }
     house.add(roof);
-    house.userData = { baseGroup: base, roofGroup: roof, damageAccum: 0 };
+    house.userData = { baseGroup, roofGroup: roof, damageAccum: 0 };
     house.position.set((Math.random()-0.5)*1400, 0, (Math.random()-0.5)*1400);
     scene.add(house);
     houses.push(house);
   }
 
-  // trees
+  // Trees
   for(let i=0;i<treeCount;i++){
     const tree = new THREE.Group();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.1,5,6), new THREE.MeshStandardMaterial({ color: 0x6b3f2a }));
-    trunk.position.y = 2.5;
-    tree.add(trunk);
+    trunk.position.y = 2.5; tree.add(trunk);
     const foliage = new THREE.Group();
     const layers = performanceMode ? 2 : 4;
     for(let l=0;l<layers;l++){
       const cone = new THREE.Mesh(new THREE.ConeGeometry(3 + l*1.1, 6 + l*1.0, 8), new THREE.MeshStandardMaterial({ color: 0x1f7a1f }));
-      cone.position.y = 6 + l * 2.6;
-      foliage.add(cone);
+      cone.position.y = 6 + l*2.6; foliage.add(cone);
     }
     tree.add(foliage);
     tree.userData = { trunk, foliageGroup: foliage, damageAccum: 0 };
@@ -634,7 +569,7 @@ function rebuildScene(){
     const s = 0.6 + Math.random()*2.4;
     const g = new THREE.BoxGeometry(s, Math.max(0.2,s*0.35), s*0.7);
     const m = new THREE.MeshStandardMaterial({ color: 0x7b7b7b });
-    const p = new THREE.Mesh(g, m);
+    const p = new THREE.Mesh(g,m);
     p.position.set((Math.random()-0.5)*900, Math.random()*120 + 5, (Math.random()-0.5)*900);
     p.userData = { velocity: new THREE.Vector3(), life: undefined };
     debrisGroup.add(p);
@@ -646,37 +581,29 @@ function rebuildScene(){
   paintScour();
 }
 
-// --- animation loop ---
+// Animation loop
 function animate(){
   requestAnimationFrame(animate);
   const now = performance.now();
   const delta = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
 
-  // move tornado if animating and not dropping
   if(animating && !dropping){
     const unitsPerSec = mphToUnitsPerSec(tornadoSpeedMph);
-    tornado.position.x += unitsPerSec * delta * 60; // scaled to feel correct in scene
+    tornado.position.x += unitsPerSec * delta * 60;
   }
 
-  // rings rotation scaled by wind
   const ringSpeed = 0.04 + (windSpeed / 240) * 0.5;
   tornado.children.forEach((r, idx) => r.rotation.y += ringSpeed * (1 + idx*0.002));
-
-  // inner particle swirl rotation
   if(innerPoints) innerPoints.rotation.y += 0.05 + (windSpeed / 500);
 
-  // wall cloud follows tornado position (low base)
   wallCloud.position.lerp(new THREE.Vector3(tornado.position.x, 90, tornado.position.z), 0.06);
 
-  // update scour canvas gradient location
   paintScour();
 
-  // physics and damage when animating
   if(animating){
     applyDamageAndPhysics(delta);
   } else {
-    // still update debris settle
     for(let i=debris.length-1;i>=0;i--){
       const p = debris[i];
       p.userData.velocity.y -= 9.8 * 0.018 * delta;
@@ -684,17 +611,14 @@ function animate(){
       p.position.addScaledVector(p.userData.velocity, delta * 60);
       if(p.userData.life !== undefined){
         p.userData.life -= delta;
-        if(p.userData.life <= 0){
-          debrisGroup.remove(p); debris.splice(i,1);
-        }
+        if(p.userData.life <= 0){ debrisGroup.remove(p); debris.splice(i,1); }
       }
     }
   }
 
-  // lightning
   maybeLightning(delta);
 
-  // camera follow (gentle)
+  // gentle camera follow
   camera.position.x += (tornado.position.x + 120 - camera.position.x) * 0.03;
   camera.position.z += (tornado.position.z + 360 - camera.position.z) * 0.03;
   camera.lookAt(new THREE.Vector3(tornado.position.x, 60, tornado.position.z));
@@ -702,7 +626,7 @@ function animate(){
   renderer.render(scene, camera);
 }
 
-// initial compute
+// initial update
 updateWindRadius();
 adjustTornadoScale();
 paintScour();
