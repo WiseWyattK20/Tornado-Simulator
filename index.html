@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Advanced 3D Tornado Simulator</title>
 <style>
-  html, body { margin:0; height:100%; overflow:hidden; background:#2f2f35; font-family:Arial, sans-serif; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#3a3a3a; font-family:Arial, sans-serif; }
   #controls { position:absolute; top:10px; left:10px; z-index:50; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; width:280px; }
   #controls input[type=range] { width:190px; }
   button { margin-top:6px; padding:6px 10px; }
@@ -31,7 +31,6 @@ let scene, camera, renderer;
 let tornado, tornadoStart={x:-400,y:320,z:0};
 let debrisGroup;
 let houses=[], trees=[], debrisPieces=[];
-let wallCloud, stormClouds=[];
 let animating=false, dropping=false;
 let windSpeed=50, tornadoSpeedMph=20, tornadoWidth=50;
 let tornadoWindRadius=150;
@@ -61,7 +60,7 @@ animate();
 
 function init(){
   scene=new THREE.Scene();
-  scene.background=new THREE.Color(0x3a3a3a); // dark stormy gray
+  scene.background=new THREE.Color(0x3a3a3a);
   scene.fog=new THREE.Fog(0x3a3a3a, 500, 4200);
 
   camera=new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 6000);
@@ -93,29 +92,7 @@ function init(){
   tornado.position.set(tornadoStart.x,tornadoStart.y,tornadoStart.z);
   scene.add(tornado);
 
-  // Wall cloud (stationary)
-  wallCloud=new THREE.Group();
-  const cloudGeo=new THREE.SphereGeometry(100,16,16);
-  const cloudMat=new THREE.MeshStandardMaterial({color:0x333333,transparent:true,opacity:0.4});
-  for(let i=0;i<8;i++){
-    const c=new THREE.Mesh(cloudGeo,cloudMat);
-    c.position.set((Math.random()-0.5)*300,50+(Math.random()*50), (Math.random()-0.5)*300);
-    cloudMat.opacity=0.4;
-    wallCloud.add(c);
-  }
-  scene.add(wallCloud);
-
-  // Storm clouds (replace supercell)
-  stormClouds=[];
-  const stormGeo=new THREE.SphereGeometry(80,16,16);
-  const stormMat=new THREE.MeshStandardMaterial({color:0x2f2f2f,transparent:true,opacity:0.25});
-  for(let i=0;i<50;i++){
-    const c=new THREE.Mesh(stormGeo,stormMat);
-    c.position.set((Math.random()-0.5)*1800,50+(Math.random()*100), (Math.random()-0.5)*1800);
-    scene.add(c);
-    stormClouds.push(c);
-  }
-
+  // Debris group
   debrisGroup=new THREE.Group();
   scene.add(debrisGroup);
 
@@ -241,6 +218,11 @@ function animate(){
       setTimeout(()=>{scene.background=new THREE.Color(0x3a3a3a);},50);
     }
   }
+
+  // Optional: camera follow tornado (comment out for static camera)
+  camera.position.x = tornado.position.x + 200;
+  camera.position.z = tornado.position.z + 400;
+  camera.lookAt(tornado.position);
 
   renderer.render(scene,camera);
 }
