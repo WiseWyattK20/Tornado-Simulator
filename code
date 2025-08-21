@@ -1,346 +1,790 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Advanced 3D Tornado Simulator</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>Ultra‑Realistic 3D Tornado Simulator</title>
 <style>
-  body { margin:0; overflow:hidden; font-family: Arial, sans-serif; background:#888;}
-  #controls {
-    position:absolute; top:10px; right:10px; background: rgba(255,255,255,0.9);
-    padding:10px; border-radius:8px; z-index:10; max-width:280px;
+  :root {
+    --ui-bg: rgba(10,12,16,.75);
+    --ui-br: 12px;
+    --brand: #88d1ff;
+    --txt: #e9f3ff;
+    --muted: #9db3c7;
   }
-  #controls input, #controls select { width:180px; }
-  button { margin:5px 0; padding:5px 10px; }
-  #efRating { font-weight:bold; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: #0b0e13;
+    color: var(--txt);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+    overflow: hidden;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display:block; outline:none; }
+  .hud {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    background: var(--ui-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--ui-br);
+    padding: 12px 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.05);
+    user-select: none;
+  }
+  .hud h1 {
+    font-size: 14px; margin: 0 0 6px 0; letter-spacing:.3px; color: var(--brand);
+  }
+  .row { display:flex; align-items:center; gap:12px; margin: 8px 0; }
+  .row label { width: 100px; color: var(--muted); font-size:12px; }
+  .row input[type=range] { width: 200px; }
+  .row input[type=checkbox] { transform: translateY(1px); }
+  .pill {
+    position: fixed; right: 12px; top: 12px; z-index: 10;
+    background: var(--ui-bg); color: var(--muted);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 999px; padding: 8px 14px; font-size: 12px;
+  }
+  .footer {
+    position: fixed; right: 12px; bottom: 12px; z-index: 10;
+    color: var(--muted); font-size: 12px; opacity:.85;
+    background: var(--ui-bg);
+    border-radius: var(--ui-br);
+    border: 1px solid rgba(255,255,255,.08);
+    padding: 8px 12px;
+  }
+  .legend {
+    margin-top: 6px; font-size: 11px; color: #b7c7d9;
+  }
+  a { color: var(--brand); text-decoration: none; }
 </style>
 </head>
 <body>
-<div id="controls">
-  <label>Wind Speed (mph): <span id="windValue">50</span></label><br>
-  <input type="range" id="windSlider" min="10" max="331" value="50"><br>
-
-  <label>Tornado Width (miles): <span id="widthValue">0.05</span></label><br>
-  <input type="range" id="widthSlider" min="0.01" max="2.6" step="0.01" value="0.05"><br>
-
-  <label>Performance Mode:</label> <input type="checkbox" id="perfToggle" checked><br>
-  <label>Phone Mode:</label> <input type="checkbox" id="phoneToggle"><br>
-  <label>Show Controls:</label> <input type="checkbox" id="showControlsToggle" checked><br>
-
-  <button id="startBtn">Start</button>
-  <button id="resetBtn">Reset</button><br>
-  <label>EF Rating:</label> <span id="efRating">EF-0</span>
+<div id="app"></div>
+<div class="hud">
+  <h1>3D Tornado Simulator</h1>
+  <div class="row">
+    <label>Intensity</label>
+    <input id="intensity" type="range" min="0.2" max="3.0" step="0.01" value="1.35">
+    <span id="intensityVal" style="font-size:12px;">1.35</span>
+  </div>
+  <div class="row">
+    <label>Base Width</label>
+    <input id="baseWidth" type="range" min="2" max="40" step="0.5" value="15">
+    <span id="baseWidthVal" style="font-size:12px;">15</span>
+  </div>
+  <div class="row">
+    <label>Top Width</label>
+    <input id="topWidth" type="range" min="40" max="150" step="1" value="90">
+    <span id="topWidthVal" style="font-size:12px;">90</span>
+  </div>
+  <div class="row">
+    <label>Height</label>
+    <input id="height" type="range" min="40" max="220" step="1" value="140">
+    <span id="heightVal" style="font-size:12px;">140</span>
+  </div>
+  <div class="row">
+    <label>Debris</label>
+    <input id="debris" type="range" min="0" max="1" step="0.01" value="0.55">
+    <span id="debrisVal" style="font-size:12px;">0.55</span>
+  </div>
+  <div class="row">
+    <label>Lightning</label>
+    <input id="lightning" type="checkbox" checked>
+  </div>
+  <div class="legend">Mouse: Orbit ⌁ Right‑drag: Pan ⌁ Wheel: Zoom</div>
 </div>
+<div class="pill">Ultra Realistic • 3D • GPU Particles</div>
+<div class="footer">Built with Three.js + GLSL • No external textures • © you</div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
-<script>
-let scene, camera, renderer, controls;
-let tornado, tornadoParticles = [], debrisGroup = [], debrisParticles = [];
-let houses = [], trees = [], roads = [], streetLights = [], powerLines = [], shelters = [];
-let wallCloud, funnelCloud, stormBase, dustParticles = [];
-let animating = false;
-let windSpeed = 50;
-let tornadoWidth = 0.05;
-let performanceMode = true;
-let phoneMode = false;
-let lightningCooldown = 0;
+<script type="module">
+/* -----------------------------------------------------------
+   Ultra‑Realistic Tornado • Three.js + GLSL (single file)
+   Author: HTML + CSS + Javascript (your friendly 🔨🤖🔧)
+   ----------------------------------------------------------- */
 
-// UI Elements
-const windSlider = document.getElementById("windSlider");
-const widthSlider = document.getElementById("widthSlider");
-const windValue = document.getElementById("windValue");
-const widthValue = document.getElementById("widthValue");
-const perfToggle = document.getElementById("perfToggle");
-const phoneToggle = document.getElementById("phoneToggle");
-const showControlsToggle = document.getElementById("showControlsToggle");
-const efRatingSpan = document.getElementById("efRating");
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/ShaderPass.js";
+import { FXAAShader } from "https://unpkg.com/three@0.160.0/examples/jsm/shaders/FXAAShader.js";
 
-windSlider.oninput = ()=> { windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); updateEFRating(); };
-widthSlider.oninput = ()=> { widthValue.textContent = Number(widthSlider.value).toFixed(2); tornadoWidth = Number(widthSlider.value); tornado.scale.set(tornadoWidth*50,1,tornadoWidth*50); };
-perfToggle.onchange = ()=> { performanceMode = perfToggle.checked; setupSceneObjects(); };
-phoneToggle.onchange = ()=> { phoneMode = phoneToggle.checked; setupSceneObjects(); };
-showControlsToggle.onchange = ()=> { document.getElementById("controls").style.display = showControlsToggle.checked ? "block":"none"; };
+const app = document.getElementById('app');
 
-document.getElementById("startBtn").onclick = ()=> { animating=true; resetScene(); };
-document.getElementById("resetBtn").onclick = ()=> { animating=false; resetScene(); };
+// ---------- Renderer / Scene / Camera ----------
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+app.appendChild(renderer.domElement);
 
-// Scene Init
-init();
-animate();
+const scene = new THREE.Scene();
 
-function init(){
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x888888);
+// Gradient stormy sky (procedural)
+scene.background = null;
+const sky = makeSkyDome();
+scene.add(sky);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 10000);
-  camera.position.set(0,200,400);
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 2000);
+camera.position.set(120, 70, 160);
 
-  renderer = new THREE.WebGLRenderer({ antialias: !performanceMode });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 40, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 30;
+controls.maxDistance = 600;
 
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
+// ---------- Lights ----------
+const hemi = new THREE.HemisphereLight(0x6d7a88, 0x0a0c12, 0.65);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xa6c8ff, 0.2);
+dir.position.set(-200, 200, 120);
+dir.castShadow = false;
+scene.add(dir);
 
-  // Lights
-  const hemiLight = new THREE.HemisphereLight(0xffffff,0x444444,1);
-  scene.add(hemiLight);
-  const dirLight = new THREE.DirectionalLight(0xffffff,0.8);
-  dirLight.position.set(-100,200,100);
-  scene.add(dirLight);
+// Lightning flash light
+const lightningLight = new THREE.PointLight(0xaad7ff, 0, 1000, 2.0);
+lightningLight.position.set(0, 140, 0);
+scene.add(lightningLight);
 
-  // Ground
-  const groundMat = new THREE.MeshPhongMaterial({color:0x2c3e2c});
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(5000,5000), groundMat);
-  ground.rotation.x = -Math.PI/2;
-  scene.add(ground);
+// ---------- Ground ----------
+const ground = makeGround();
+scene.add(ground);
 
-  // Tornado base
-  const torGeo = new THREE.CylinderGeometry(20,5,120,32,1,true);
-  const torMat = new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.7});
-  tornado = new THREE.Mesh(torGeo, torMat);
-  tornado.position.set(0,60,0);
-  scene.add(tornado);
+// ---------- Fog ----------
+scene.fog = new THREE.FogExp2(0x0b0e13, 0.0045);
 
-  debrisGroup = new THREE.Group();
-  scene.add(debrisGroup);
+// ---------- Postprocessing ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.9, 0.85);
+composer.addPass(bloom);
+const fxaa = new ShaderPass(FXAAShader);
+fxaa.material.uniforms['resolution'].value.set(1/(innerWidth*renderer.getPixelRatio()), 1/(innerHeight*renderer.getPixelRatio()));
+composer.addPass(fxaa);
 
-  // Wall cloud
-  const wcGeo = new THREE.SphereGeometry(80,32,16);
-  const wcMat = new THREE.MeshStandardMaterial({color:0x333333, transparent:true, opacity:0.6});
-  wallCloud = new THREE.Mesh(wcGeo, wcMat);
-  wallCloud.position.y = 200;
-  scene.add(wallCloud);
+// ---------- Tornado Core (GPU Particles) ----------
+const sim = makeTornadoParticles();
+scene.add(sim.points);
 
-  // Funnel cloud
-  const fcGeo = new THREE.ConeGeometry(50,200,32);
-  const fcMat = new THREE.MeshStandardMaterial({color:0x222222, transparent:true, opacity:0.7});
-  funnelCloud = new THREE.Mesh(fcGeo, fcMat);
-  funnelCloud.position.y = 180;
-  scene.add(funnelCloud);
+// ---------- Debris (instanced meshes) ----------
+const debris = makeDebrisField();
+scene.add(debris.mesh);
 
-  // Storm base
-  const sbGeo = new THREE.CylinderGeometry(400,500,50,32);
-  const sbMat = new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.3});
-  stormBase = new THREE.Mesh(sbGeo, sbMat);
-  stormBase.position.y = 25;
-  scene.add(stormBase);
+// ---------- Cloud layer (billboard points) ----------
+const clouds = makeClouds();
+scene.add(clouds.points);
 
-  setupSceneObjects();
-
-  window.addEventListener("resize",()=>{
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-}
-
-// Procedural objects and debris
-function setupSceneObjects(){
-  // Clear previous
-  houses.forEach(h=>scene.remove(h)); houses=[];
-  trees.forEach(t=>scene.remove(t)); trees=[];
-  debrisParticles.forEach(d=>debrisGroup.remove(d)); debrisParticles=[];
-  roads.forEach(r=>scene.remove(r)); roads=[];
-  streetLights.forEach(l=>scene.remove(l)); streetLights=[];
-  powerLines.forEach(p=>scene.remove(p)); powerLines=[];
-  shelters.forEach(s=>scene.remove(s)); shelters=[];
-  dustParticles.forEach(d=>scene.remove(d)); dustParticles=[];
-
-  let houseCount = phoneMode?5:performanceMode?10:20;
-  let treeCount = phoneMode?10:performanceMode?20:50;
-  let debrisCount = phoneMode?30:performanceMode?50:200;
-
-  // Houses
-  for(let i=0;i<houseCount;i++){
-    let house = createDestructibleHouse();
-    house.position.set((Math.random()-0.5)*2000,0,(Math.random()-0.5)*2000);
-    scene.add(house);
-    houses.push(house);
-
-    // Roads
-    let road = new THREE.Mesh(new THREE.PlaneGeometry(50,200), new THREE.MeshPhongMaterial({color:0x555555}));
-    road.rotation.x=-Math.PI/2;
-    road.position.set(house.position.x,0,house.position.z-100);
-    scene.add(road); roads.push(road);
-
-    // Street lights
-    let light = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,15,6), new THREE.MeshStandardMaterial({color:0xffff00}));
-    light.position.set(house.position.x+20,7.5,house.position.z-90);
-    scene.add(light); streetLights.push(light);
-
-    // Power lines
-    let pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,20,6), new THREE.MeshStandardMaterial({color:0x888888}));
-    pole.position.set(house.position.x-20,10,house.position.z-90);
-    scene.add(pole); powerLines.push(pole);
+// ---------- Lightning / Audio (no external file – synthesized) ----------
+const lightning = {
+  enabled: true,
+  cooldown: 0,
+  throb: 0,
+  flash() {
+    this.throb = 1.0 + Math.random() * 0.6;
+    lightningLight.intensity = 0;
   }
+};
 
-  // Trees
-  for(let i=0;i<treeCount;i++){
-    let trunk = new THREE.Mesh(new THREE.CylinderGeometry(1,1,5,6), new THREE.MeshStandardMaterial({color:0x8b4513}));
-    let leaves = new THREE.Mesh(new THREE.ConeGeometry(3,10,8), new THREE.MeshStandardMaterial({color:0x228B22}));
-    let tree = new THREE.Group(); trunk.position.y=2.5; leaves.position.y=8;
-    tree.add(trunk); tree.add(leaves);
-    tree.position.set((Math.random()-0.5)*2000,0,(Math.random()-0.5)*2000);
-    tree.userData = {destructible:true, damagedParts:[]};
-    scene.add(tree); trees.push(tree);
-  }
+// WebAudio: wind rumble + thunder clicks (simple noise)
+const audio = await makeWindAudio();
 
-  // Shelters
-  for(let i=0;i<10;i++){
-    let s = new THREE.Mesh(new THREE.BoxGeometry(15,10,15), new THREE.MeshStandardMaterial({color:0x888888}));
-    s.position.set((Math.random()-0.5)*2000,5,(Math.random()-0.5)*2000);
-    s.userData = {maxWind: i<8?209:243};
-    scene.add(s); shelters.push(s);
-  }
+// ---------- UI Bindings ----------
+const bindRange = (id, on) => {
+  const el = document.getElementById(id);
+  const label = document.getElementById(id+"Val");
+  const update = () => { if (label) label.textContent = el.value; on(parseFloat(el.value)); };
+  el.addEventListener('input', update);
+  update();
+};
+bindRange('intensity', v => { sim.mat.uniforms.uIntensity.value = v; debris.params.intensity = v; });
+bindRange('baseWidth', v => { sim.mat.uniforms.uBaseRadius.value = v; });
+bindRange('topWidth', v => { sim.mat.uniforms.uTopRadius.value = v; });
+bindRange('height', v => { sim.mat.uniforms.uHeight.value = v; clouds.params.stormCeil = Math.max(60, v + 20); });
+bindRange('debris', v => { debris.params.amount = v; });
 
-  // Initial debris
-  for(let i=0;i<debrisCount;i++){
-    let d = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:0x888888}));
-    d.position.set((Math.random()-0.5)*800,Math.random()*50,(Math.random()-0.5)*800);
-    d.userData.velocity = new THREE.Vector3();
-    debrisGroup.add(d); debrisParticles.push(d);
-  }
+const lightningCheckbox = document.getElementById('lightning');
+lightningCheckbox.addEventListener('change', e => lightning.enabled = e.target.checked);
+lightning.enabled = true;
 
-  // Dust particles (detached from camera)
-  for(let i=0;i<100;i++){
-    let dust = new THREE.Mesh(new THREE.SphereGeometry(1,4,4), new THREE.MeshStandardMaterial({color:0xAAAAAA, transparent:true, opacity:0.5}));
-    dust.position.set((Math.random()-0.5)*1000,Math.random()*5,(Math.random()-0.5)*1000);
-    dust.userData.velocity = new THREE.Vector3();
-    scene.add(dust); dustParticles.push(dust);
-  }
-}
-
-function createDestructibleHouse(){
-  let house = new THREE.Group();
-  let base = new THREE.Mesh(new THREE.BoxGeometry(20,10,20), new THREE.MeshStandardMaterial({color:0xa0522d}));
-  let roof = new THREE.Mesh(new THREE.ConeGeometry(15,6,4), new THREE.MeshStandardMaterial({color:0x8b0000}));
-  roof.position.y=8;
-  house.add(base); house.add(roof);
-  house.userData = {destructible:true, damagedParts:[]};
-  return house;
-}
-
-function resetScene(){
-  tornado.position.set(0,60,0);
-  houses.forEach(h=>h.userData.damagedParts=[]);
-  trees.forEach(t=>t.userData.damagedParts=[]);
-  debrisParticles.forEach(d=>d.userData.velocity.set(0,0,0));
-  dustParticles.forEach(d=>d.userData.velocity.set(0,0,0));
-}
-
-function updateEFRating(){
-  let ef = "EF-0";
-  if(windSpeed>=201) ef="EF-5";
-  else if(windSpeed>=200) ef="EF-4";
-  else if(windSpeed>=165) ef="EF-3";
-  else if(windSpeed>=135) ef="EF-2";
-  else if(windSpeed>=110) ef="EF-1";
-  efRatingSpan.textContent = ef;
-}
-
-// Animate loop
-function animate(){
+// ---------- Animate ----------
+let tPrev = performance.now();
+function animate() {
   requestAnimationFrame(animate);
+  const tNow = performance.now();
+  const dt = (tNow - tPrev) / 1000;
+  tPrev = tNow;
+
   controls.update();
 
-  if(animating){
-    // Procedural tornado movement
-    tornado.position.x += (Math.random()-0.5)*2;
-    tornado.position.z += (Math.random()-0.5)*2;
+  // Update tornado particle uniforms
+  sim.mat.uniforms.uTime.value += dt;
 
-    // Funnel cloud and wall cloud follow tornado
-    funnelCloud.position.x = tornado.position.x;
-    funnelCloud.position.z = tornado.position.z;
-    funnelCloud.position.y = 180;
+  // Debris update
+  debris.update(dt);
 
-    wallCloud.position.x = tornado.position.x;
-    wallCloud.position.z = tornado.position.z;
+  // Clouds drift
+  clouds.update(dt);
 
-    stormBase.position.x = tornado.position.x;
-    stormBase.position.z = tornado.position.z;
-
-    // Rotate tornado
-    tornado.rotation.y += 0.1;
-
-    // Procedural destruction
-    houses.forEach(h=>{
-      let dist = h.position.distanceTo(tornado.position);
-      if(dist<tornadoWidth*500){
-        h.children.forEach(c=>{
-          if(Math.random()*windSpeed>30 && !h.userData.damagedParts.includes(c)){
-            let pieceCount = Math.floor(Math.random()*4)+2;
-            for(let i=0;i<pieceCount;i++){
-              let geom = new THREE.BoxGeometry(c.geometry.parameters.width/pieceCount, c.geometry.parameters.height/pieceCount, c.geometry.parameters.depth/pieceCount);
-              let mat = c.material.clone();
-              let frag = new THREE.Mesh(geom,mat);
-              frag.position.copy(c.getWorldPosition(new THREE.Vector3()));
-              frag.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
-              debrisGroup.add(frag); debrisParticles.push(frag);
-            }
-            h.userData.damagedParts.push(c);
-            h.remove(c);
-          }
-        });
-      }
-    });
-
-    // Trees
-    trees.forEach(t=>{
-      let dist = t.position.distanceTo(tornado.position);
-      if(dist<tornadoWidth*400){
-        t.children.forEach(c=>{
-          if(Math.random()*windSpeed>25 && !t.userData.damagedParts.includes(c)){
-            let frag = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), c.material.clone());
-            frag.position.copy(c.getWorldPosition(new THREE.Vector3()));
-            frag.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5,Math.random()*0.5,(Math.random()-0.5)*0.5);
-            debrisGroup.add(frag); debrisParticles.push(frag);
-            t.userData.damagedParts.push(c);
-            t.remove(c);
-          }
-        });
-      }
-    });
-
-    // Debris movement
-    debrisParticles.forEach(d=>{
-      let dir = new THREE.Vector3().subVectors(tornado.position,d.position).normalize();
-      let dist = d.position.distanceTo(tornado.position);
-      let factor = windSpeed/50 * (1-dist/(tornadoWidth*500));
-      d.userData.velocity.add(dir.multiplyScalar(0.05*factor));
-      d.userData.velocity.y -= 0.01;
-      d.position.add(d.userData.velocity);
-    });
-
-    // Dust circulation around tornado
-    dustParticles.forEach(d=>{
-      let dir = new THREE.Vector3().subVectors(tornado.position,d.position).normalize();
-      d.userData.velocity.add(dir.multiplyScalar(0.01));
-      d.position.add(d.userData.velocity);
-      if(d.position.distanceTo(tornado.position)<10) d.position.x += (Math.random()-0.5)*50;
-    });
-
-    // Ground scour
-    scene.traverse(obj=>{
-      if(obj.isMesh && obj.geometry.type=="PlaneGeometry"){
-        let intensity = Math.min(windSpeed/200,1);
-        obj.material.color.setRGB(0.17+0.2*intensity,0.24+0.2*intensity,0.17);
-      }
-    });
-
-    // Lightning strikes
-    if(lightningCooldown<=0 && Math.random()<0.005){
-      let light = new THREE.PointLight(0xffffff,3,500);
-      light.position.set(tornado.position.x + (Math.random()-0.5)*200,200,tornado.position.z + (Math.random()-0.5)*200);
-      scene.add(light);
-      setTimeout(()=>{scene.remove(light)},200);
-      lightningCooldown = 100;
+  // Lightning logic
+  if (lightning.enabled) {
+    lightning.cooldown -= dt;
+    if (lightning.cooldown <= 0 && Math.random() < 0.015) {
+      lightning.flash();
+      lightning.cooldown = 2.5 + Math.random() * 4.0;
     }
-    lightningCooldown--;
+    if (lightning.throb > 0) {
+      // temporal intensity with quick falloff + bloom
+      lightningLight.intensity = 8.0 * lightning.throb;
+      renderer.toneMappingExposure = 1.0 + 0.25 * lightning.throb;
+      lightning.throb -= dt * (2.2 + Math.random()*0.6);
+      if (audio) audio.lightningTick();
+    } else {
+      lightningLight.intensity = 0;
+      renderer.toneMappingExposure = 1.0;
+    }
+  } else {
+    lightningLight.intensity = 0;
+    renderer.toneMappingExposure = 1.0;
   }
 
-  renderer.render(scene,camera);
+  composer.render();
+}
+animate();
+
+// ---------- Resize ----------
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  bloom.setSize(innerWidth, innerHeight);
+  fxaa.material.uniforms['resolution'].value.set(1/(innerWidth*renderer.getPixelRatio()), 1/(innerHeight*renderer.getPixelRatio()));
+});
+
+// ================== Helpers & Builders ==================
+
+function makeGround() {
+  const g = new THREE.CircleGeometry(1200, 128);
+  const m = new THREE.ShaderMaterial({
+    transparent: false,
+    uniforms: {
+      uColorA: { value: new THREE.Color(0x0f131a) },
+      uColorB: { value: new THREE.Color(0x151b24) },
+      uRing: { value: new THREE.Color(0x1a2a37) }
+    },
+    vertexShader: /* glsl */`
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec3 pos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec2 vUv;
+      uniform vec3 uColorA, uColorB, uRing;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3,289.1)))*44317.19); }
+      float noise(vec2 p){
+        vec2 i=floor(p), f=fract(p);
+        float a=hash(i), b=hash(i+vec2(1,0)), c=hash(i+vec2(0,1)), d=hash(i+vec2(1,1));
+        vec2 u=f*f*(3.0-2.0*f);
+        return mix(a,b,u.x)+ (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
+      }
+      void main() {
+        float r = length(vUv - .5) * 2.0;
+        float n = noise(vUv*24.0) * 0.08;
+        vec3 col = mix(uColorA, uColorB, smoothstep(0.0,1.0,r)+n);
+        // Subtle radial darker ring near tornado center
+        float ring = smoothstep(0.0, 0.25, r) * (1.0 - smoothstep(0.25, 0.6, r));
+        col = mix(col, uRing, ring*0.25);
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.rotation.x = -Math.PI/2;
+  return mesh;
+}
+
+function makeSkyDome() {
+  const g = new THREE.SphereGeometry(1600, 48, 24);
+  g.scale(-1,1,1);
+  const m = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: {
+      uTop: { value: new THREE.Color(0x0b0f17) },
+      uHorizon: { value: new THREE.Color(0x0e141d) },
+      uStorm: { value: new THREE.Color(0x0a1018) },
+      uTime: { value: 0 }
+    },
+    vertexShader: /* glsl */`
+      varying vec3 vPos;
+      void main(){
+        vPos = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec3 vPos;
+      uniform vec3 uTop, uHorizon, uStorm;
+      // subtle moving shelf clouds with noise stripes
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+      float noise(vec3 x){
+        vec3 p=floor(x), f=fract(x);
+        float n = dot(p, vec3(1.0,57.0,113.0));
+        vec3 u = f*f*(3.0-2.0*f);
+        float a=hash(p.xy+n), b=hash(p.xy+vec2(1,0)+n),
+              c=hash(p.xy+vec2(0,1)+n), d=hash(p.xy+vec2(1,1)+n);
+        return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+      }
+      void main(){
+        float h = clamp(vPos.y*0.5+0.5, 0.0, 1.0);
+        vec3 grad = mix(uHorizon, uTop, h);
+        float bands = smoothstep(0.2, 0.95, h) * noise(vec3(vPos.xz*4.0, h*2.0)) * 0.25;
+        vec3 col = mix(grad, uStorm, bands);
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  });
+  return new THREE.Mesh(g, m);
+}
+
+function randRange(a,b){ return a + Math.random()*(b-a); }
+
+function makeTornadoParticles() {
+  const COUNT = 110000; // GPU points
+  const g = new THREE.BufferGeometry();
+  const aAngle = new Float32Array(COUNT);
+  const aHeight = new Float32Array(COUNT);
+  const aRadius = new Float32Array(COUNT);
+  const aSeed = new Float32Array(COUNT);
+
+  // Distribute particles roughly in a tapered column
+  const baseRadius = 15, topRadius = 90, height = 140;
+  for (let i=0;i<COUNT;i++){
+    const h = Math.random();               // 0..1
+    const radiusAtH = THREE.MathUtils.lerp(baseRadius, topRadius, h*h);
+    const r = Math.pow(Math.random(), 0.85) * radiusAtH;
+    aAngle[i]  = Math.random() * Math.PI*2;
+    aHeight[i] = h;
+    aRadius[i] = r;
+    aSeed[i]   = Math.random()*1000;
+  }
+  g.setAttribute('aAngle', new THREE.BufferAttribute(aAngle, 1));
+  g.setAttribute('aHeight', new THREE.BufferAttribute(aHeight, 1));
+  g.setAttribute('aRadius', new THREE.BufferAttribute(aRadius, 1));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+
+  // Soft round sprite generated on the fly
+  const sprite = new THREE.CanvasTexture(makeSoftSprite(256));
+  sprite.colorSpace = THREE.SRGBColorSpace;
+  sprite.wrapS = sprite.wrapT = THREE.ClampToEdgeWrapping;
+  sprite.minFilter = THREE.LinearFilter;
+  sprite.magFilter = THREE.LinearFilter;
+
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uTime: { value: 0 },
+      uIntensity: { value: 1.35 },
+      uBaseRadius: { value: baseRadius },
+      uTopRadius: { value: topRadius },
+      uHeight: { value: height },
+      uTex: { value: sprite },
+      uColorSmoke: { value: new THREE.Color(0x9db6c9) },
+      uColorCore: { value: new THREE.Color(0xced9e4) }
+    },
+    vertexShader: /* glsl */`
+      attribute float aAngle;
+      attribute float aHeight;
+      attribute float aRadius;
+      attribute float aSeed;
+
+      uniform float uTime;
+      uniform float uIntensity;
+      uniform float uBaseRadius;
+      uniform float uTopRadius;
+      uniform float uHeight;
+
+      varying float vAlpha;
+      varying float vMix;
+      varying vec3 vPos;
+
+      // 3D simplex noise (lite)
+      vec4 permute(vec4 x){ return mod(((x*34.0)+1.0)*x, 289.0); }
+      float snoise(vec3 v){
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod(i, 289.0 );
+        vec4 p = permute( permute( permute(
+                  i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
+                + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+        vec4 j = p - 49.0 * floor(p / 49.0);
+        vec4 x_ = floor(j / 7.0);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = (x_ *2.0 + 0.5)/7.0;
+        vec4 y = (y_ *2.0 + 0.5)/7.0;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4( x.xy, y.xy );
+        vec4 b1 = vec4( x.zw, y.zw );
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+        vec3 g0 = vec3(a0.xy,h.x);
+        vec3 g1 = vec3(a0.zw,h.y);
+        vec3 g2 = vec3(a1.xy,h.z);
+        vec3 g3 = vec3(a1.zw,h.w);
+        vec4 norm = 1.79284291400159 - 0.85373472095314 *
+                    vec4(dot(g0,g0), dot(g1,g1), dot(g2,g2), dot(g3,g3));
+        g0 *= norm.x; g1 *= norm.y; g2 *= norm.z; g3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1),
+                                dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m*m;
+        return 42.0 * dot( m*m, vec4( dot(g0,x0), dot(g1,x1),
+                                      dot(g2,x2), dot(g3,x3) ) );
+      }
+
+      // Curl noise for swirling motion
+      vec3 curlNoise(vec3 p){
+        float e = 0.1;
+        vec3 dx = vec3(e,0.0,0.0);
+        vec3 dy = vec3(0.0,e,0.0);
+        vec3 dz = vec3(0.0,0.0,e);
+        float nx1 = snoise(p+dy) - snoise(p-dy);
+        float ny1 = snoise(p+dz) - snoise(p-dz);
+        float nz1 = snoise(p+dx) - snoise(p-dx);
+        return normalize(vec3(nx1, ny1, nz1));
+      }
+
+      void main() {
+        float H = aHeight;             // 0..1 along tornado height
+        float R = mix(uBaseRadius, uTopRadius, H*H);
+        float angle = aAngle + (uTime * (3.0 + H*5.0) * uIntensity);
+
+        // basic helical position
+        vec3 pos;
+        pos.x = cos(angle) * (aRadius * (0.45 + 0.55*H));
+        pos.z = sin(angle) * (aRadius * (0.45 + 0.55*H));
+        pos.y = H * uHeight;
+
+        // inward pull towards core, stronger near bottom
+        float inward = mix(1.8, 0.3, H);
+        pos.xz *= mix(1.0, 0.25, smoothstep(0.0, 0.2, 1.0-H) * uIntensity);
+
+        // add curl noise offset – makes it turbulent and alive
+        vec3 npos = vec3(pos.x*0.035 + aSeed, pos.y*0.025 + uTime*0.25, pos.z*0.035 - aSeed);
+        vec3 curl = curlNoise(npos) * (2.0 + 4.0*H) * uIntensity;
+        pos += curl;
+
+        // Updraft rise + recycle loop
+        float rise = uTime * (0.8 + 1.8*H) * uIntensity + aSeed;
+        pos.y = mod(pos.y + rise, uHeight);
+
+        // Spread and taper
+        float taper = smoothstep(0.0, 1.0, H);
+        float distToAxis = length(pos.xz);
+        float rim = smoothstep(R*0.2, R*0.9, distToAxis);
+        vAlpha = (1.0 - rim) * (0.55 + 0.45*(1.0-H));
+
+        vMix = clamp(0.15 + 0.9*H, 0.0, 1.0);
+        vPos = pos;
+
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+
+        // Size attenuates with distance; larger near bottom
+        float size = mix(28.0, 8.0, H) * (1.0 + 0.6*snoise(npos*1.6));
+        gl_PointSize = size * (300.0 / -mv.z);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uTex;
+      uniform vec3 uColorSmoke;
+      uniform vec3 uColorCore;
+      varying float vAlpha;
+      varying float vMix;
+      varying vec3 vPos;
+      void main(){
+        vec2 uv = gl_PointCoord;
+        vec4 s = texture2D(uTex, uv);
+        float a = s.a * vAlpha;
+        vec3 col = mix(uColorCore, uColorSmoke, vMix);
+        // darker inner core
+        float r = length(uv-0.5);
+        a *= smoothstep(0.7, 0.05, r);
+        gl_FragColor = vec4(col, a);
+      }`
+  });
+
+  const points = new THREE.Points(g, mat);
+  points.frustumCulled = false;
+  return { points, mat };
+}
+
+function makeSoftSprite(size=128){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, size*0.05, size/2, size/2, size*0.5);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.25)');
+  g.addColorStop(1, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,size,size);
+  return c;
+}
+
+function makeDebrisField(){
+  const COUNT = 1200;
+  const sizeRange = [0.25, 2.6];
+  const geom = new THREE.BoxGeometry(1,1,1);
+  const mat = new THREE.MeshStandardMaterial({
+    metalness: 0.1, roughness: 0.9, color: 0x8aa0b2, envMapIntensity: 0.0
+  });
+  const mesh = new THREE.InstancedMesh(geom, mat, COUNT);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+  const dummy = new THREE.Object3D();
+  const vel = new Array(COUNT);
+  const life = new Float32Array(COUNT);
+
+  const params = {
+    intensity: 1.35,
+    amount: 0.55
+  };
+
+  // initialize
+  for (let i=0;i<COUNT;i++){
+    respawn(i, true);
+  }
+
+  function respawn(i, first=false){
+    const spread = 200;
+    // spawn around a ring close to tornado base
+    const ang = Math.random()*Math.PI*2;
+    const rad = 20 + Math.random()*40;
+    const x = Math.cos(ang)*rad;
+    const z = Math.sin(ang)*rad;
+    const y = Math.random()*2 + (first ? Math.random()*10 : 0);
+
+    dummy.position.set(x,y,z);
+    const s = randRange(sizeRange[0], sizeRange[1]) * Math.pow(Math.random(), 2.0);
+    dummy.scale.setScalar(s);
+    dummy.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+
+    vel[i] = new THREE.Vector3(
+      -Math.sin(ang) * (3 + Math.random()*2),
+      6 + Math.random()*12,
+      Math.cos(ang) * (3 + Math.random()*2)
+    );
+    life[i] = randRange(2.0, 10.0);
+  }
+
+  function update(dt){
+    const mul = THREE.MathUtils.clamp(params.amount*1.35, 0, 2.0);
+    for (let i=0;i<mesh.count;i++){
+      mesh.getMatrixAt(i, dummy.matrix);
+      dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+
+      // radial pull towards tornado axis and swirl
+      const toCenter = new THREE.Vector3(-dummy.position.x, 0, -dummy.position.z);
+      const dist = Math.max(4, toCenter.length());
+      toCenter.normalize();
+
+      // swirl tangent
+      const tangent = new THREE.Vector3(-toCenter.z, 0, toCenter.x);
+
+      // velocity update
+      vel[i].addScaledVector(toCenter, (40/dist) * params.intensity * dt * mul);
+      vel[i].addScaledVector(tangent, (60/dist) * params.intensity * dt * mul);
+      vel[i].y += (28 / dist) * dt * mul;
+      vel[i].multiplyScalar(THREE.MathUtils.lerp(0.995, 0.98, dt)); // drag
+
+      // integrate
+      dummy.position.addScaledVector(vel[i], dt);
+
+      // bounce on ground
+      if (dummy.position.y < 0.2) {
+        dummy.position.y = 0.2;
+        vel[i].y *= -0.35;
+        vel[i].multiplyScalar(0.92);
+      }
+
+      // simple kill + respawn
+      life[i] -= dt;
+      const tooFar = dummy.position.length() > 600 || dummy.position.y > 400 || life[i] <= 0;
+      // amount slider thins the active set
+      if (Math.random() > params.amount) {
+        // freeze visually by minimizing scale
+        dummy.scale.setScalar(0.0001);
+      } else if (tooFar) {
+        respawn(i);
+      } else {
+        dummy.scale.setScalar(Math.max(dummy.scale.x, 0.0001));
+      }
+
+      dummy.rotation.x += dt * 2.0;
+      dummy.rotation.y += dt * 1.6;
+      dummy.rotation.z += dt * 1.3;
+
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  return { mesh, update, params };
+}
+
+function makeClouds() {
+  const COUNT = 14000;
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(COUNT*3);
+  const size = new Float32Array(COUNT);
+  const seed = new Float32Array(COUNT);
+
+  const ceil = 160;
+  for (let i=0;i<COUNT;i++){
+    const r = 500 + Math.random()*800;
+    const a = Math.random()*Math.PI*2;
+    pos[i*3+0] = Math.cos(a)*r + randRange(-80,80);
+    pos[i*3+2] = Math.sin(a)*r + randRange(-80,80);
+    pos[i*3+1] = ceil + Math.pow(Math.random(), 1.2) * 120;
+    size[i] = 10 + Math.random()*40;
+    seed[i] = Math.random()*1000;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+
+  const tex = new THREE.CanvasTexture(makeSoftSprite(256));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+
+  const m = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    uniforms: {
+      uTime: { value: 0 },
+      uTex: { value: tex },
+      uColor: { value: new THREE.Color(0xa7bfd1) }
+    },
+    vertexShader: /* glsl */`
+      attribute float aSize;
+      attribute float aSeed;
+      uniform float uTime;
+      varying float vAlpha;
+      void main(){
+        vec3 p = position;
+        // gentle swirl around world origin, slight vertical waviness
+        float ang = atan(p.z, p.x) + uTime*0.01 + aSeed*0.0005;
+        float rad = length(p.xz);
+        p.x = cos(ang) * rad;
+        p.z = sin(ang) * rad;
+        p.y += sin(uTime*0.15 + aSeed)*2.0;
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = aSize * (300.0 / -mv.z);
+        vAlpha = 0.25;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uTex;
+      uniform vec3 uColor;
+      varying float vAlpha;
+      void main(){
+        vec4 s = texture2D(uTex, gl_PointCoord);
+        float a = s.a * vAlpha * 0.85;
+        gl_FragColor = vec4(uColor, a);
+      }`
+  });
+
+  const points = new THREE.Points(g, m);
+  points.frustumCulled = false;
+
+  const params = { stormCeil: 180 };
+  function update(dt){ m.uniforms.uTime.value += dt; }
+  return { points, update, params };
+}
+
+// Simple wind + thunder ticks (procedural)
+async function makeWindAudio(){
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const master = ctx.createGain(); master.gain.value = 0.35; master.connect(ctx.destination);
+
+    // wind: filtered noise
+    const noise = ctx.createBufferSource();
+    const buf = ctx.createBuffer(2, ctx.sampleRate*2, ctx.sampleRate);
+    for (let ch=0; ch<2; ch++){
+      const data = buf.getChannelData(ch);
+      for (let i=0;i<data.length;i++){
+        // pink-ish noise via leaky integrator
+        const w = Math.random()*2-1;
+        data[i] = (i>0 ? data[i-1]*0.98 : 0) + w*0.05;
+      }
+    }
+    noise.buffer = buf; noise.loop = true;
+
+    const windFilter = ctx.createBiquadFilter();
+    windFilter.type = 'lowpass'; windFilter.frequency.value = 500;
+    const windGain = ctx.createGain(); windGain.gain.value = 0.8;
+
+    noise.connect(windFilter); windFilter.connect(windGain); windGain.connect(master);
+    noise.start();
+
+    // subtle rumble LFO
+    const lfo = ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.13;
+    const lfoGain = ctx.createGain(); lfoGain.gain.value = 120;
+    lfo.connect(lfoGain); lfoGain.connect(windFilter.frequency);
+    lfo.start();
+
+    // API for lightning click
+    const tick = () => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type='triangle'; osc.frequency.value = 120 + Math.random()*280;
+      g.gain.value = 0.0;
+      osc.connect(g); g.connect(master);
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(0.0, t);
+      g.gain.linearRampToValueAtTime(0.6, t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.15);
+      osc.start(t);
+      osc.stop(t+0.2);
+    };
+
+    // resume on user gesture (autoplay policies)
+    const resume = () => { ctx.resume(); window.removeEventListener('pointerdown', resume, { once:true }); };
+    window.addEventListener('pointerdown', resume, { once:true });
+
+    return {
+      context: ctx,
+      lightningTick: tick
+    };
+  } catch (e){
+    console.warn('Audio init failed', e);
+    return null;
+  }
 }
 </script>
 </body>
