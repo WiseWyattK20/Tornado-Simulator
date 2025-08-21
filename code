@@ -27,7 +27,7 @@
 
   <label>Performance Mode:</label> <input type="checkbox" id="perfToggle" checked><br>
   <label>Phone Mode:</label> <input type="checkbox" id="phoneToggle"><br>
-  <label>Hide UI:</label> <input type="checkbox" id="hideUIToggle"><br>
+  <label>Show Controls:</label> <input type="checkbox" id="showControlsToggle" checked><br>
 
   <button id="startBtn">Start</button>
   <button id="resetBtn">Reset</button>
@@ -37,8 +37,9 @@
 <script>
 let scene, camera, renderer;
 let tornado, tornadoParticles = [], debrisGroup = [], debrisParticles = [];
+let wallCloud, supercell;
 let houses = [], trees = [], roads = [], streetLights = [], powerLines = [];
-let wallCloudParticles = [], funnelCloudParticles = [], stormBaseParticles = [];
+let lightningGroup = [];
 let animating = false;
 let windSpeed = 50;
 let tornadoSpeed = 10;
@@ -57,14 +58,14 @@ const speedValue = document.getElementById("speedValue");
 const widthValue = document.getElementById("widthValue");
 const perfToggle = document.getElementById("perfToggle");
 const phoneToggle = document.getElementById("phoneToggle");
-const hideUIToggle = document.getElementById("hideUIToggle");
+const showControlsToggle = document.getElementById("showControlsToggle");
 
 windSlider.oninput = ()=> { windValue.textContent = windSlider.value; windSpeed = Number(windSlider.value); };
 speedSlider.oninput = ()=> { speedValue.textContent = speedSlider.value; tornadoSpeed = Number(speedSlider.value); };
-widthSlider.oninput = ()=> { widthValue.textContent = widthSlider.value; tornadoWidth = Number(widthSlider.value); tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
+widthSlider.oninput = ()=> { widthValue.textContent = widthSlider.value; tornadoWidth = Number(widthSlider.value); if(tornado) tornado.scale.set(tornadoWidth/50,1,tornadoWidth/50); };
 perfToggle.onchange = ()=> { performanceMode = perfToggle.checked; setupSceneObjects(); };
 phoneToggle.onchange = ()=> { phoneMode = phoneToggle.checked; setupSceneObjects(); };
-hideUIToggle.onchange = ()=> { document.getElementById("controls").style.display = hideUIToggle.checked ? "none" : "block"; };
+showControlsToggle.onchange = ()=> { document.getElementById("controls").style.display = showControlsToggle.checked?"block":"none"; };
 
 // Scene Init
 init();
@@ -72,7 +73,7 @@ animate();
 
 function init(){
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x888888); // gray sky
+  scene.background = new THREE.Color(0x888888);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 5000);
   camera.position.set(0,200,400);
@@ -82,8 +83,9 @@ function init(){
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Lights
-  scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1));
+  // Lighting
+  const hemiLight = new THREE.HemisphereLight(0xffffff,0x444444,1);
+  scene.add(hemiLight);
   const dirLight = new THREE.DirectionalLight(0xffffff,0.8);
   dirLight.position.set(-100,200,100);
   scene.add(dirLight);
@@ -101,10 +103,26 @@ function init(){
   tornado.position.set(-400,60,0);
   scene.add(tornado);
 
+  // Wall Cloud
+  const wcGeo = new THREE.CylinderGeometry(80,100,40,32,1,true);
+  const wcMat = new THREE.MeshStandardMaterial({color:0x444466, transparent:true, opacity:0.5});
+  wallCloud = new THREE.Mesh(wcGeo, wcMat);
+  wallCloud.position.set(-400,140,0);
+  scene.add(wallCloud);
+
+  // Supercell Base
+  const scGeo = new THREE.CylinderGeometry(300,300,50,32,1,true);
+  const scMat = new THREE.MeshStandardMaterial({color:0x555577, transparent:true, opacity:0.3});
+  supercell = new THREE.Mesh(scGeo, scMat);
+  supercell.position.set(-400,200,0);
+  scene.add(supercell);
+
   debrisGroup = new THREE.Group();
   scene.add(debrisGroup);
 
-  // Buttons
+  lightningGroup = new THREE.Group();
+  scene.add(lightningGroup);
+
   document.getElementById("startBtn").onclick = ()=> { animating=true; resetScene(); };
   document.getElementById("resetBtn").onclick = ()=> { animating=false; resetScene(); };
 
@@ -117,7 +135,6 @@ function init(){
   setupSceneObjects();
 }
 
-// Setup houses, trees, debris, roads, lights
 function setupSceneObjects(){
   // Clear previous
   houses.forEach(h=>scene.remove(h)); houses=[];
@@ -126,16 +143,10 @@ function setupSceneObjects(){
   roads.forEach(r=>scene.remove(r)); roads=[];
   streetLights.forEach(l=>scene.remove(l)); streetLights=[];
   powerLines.forEach(p=>scene.remove(p)); powerLines=[];
-  wallCloudParticles.forEach(p=>scene.remove(p)); wallCloudParticles=[];
-  funnelCloudParticles.forEach(p=>scene.remove(p)); funnelCloudParticles=[];
-  stormBaseParticles.forEach(p=>scene.remove(p)); stormBaseParticles=[];
 
   let houseCount = phoneMode?5:performanceMode?10:20;
   let treeCount = phoneMode?10:performanceMode?20:50;
   let debrisCount = phoneMode?30:performanceMode?50:200;
-  let wallCloudCount = phoneMode?20:performanceMode?40:80;
-  let funnelCloudCount = phoneMode?20:performanceMode?40:80;
-  let stormBaseCount = phoneMode?20:performanceMode?50:100;
 
   // Procedural Roads, Houses, Trees
   for(let i=0;i<houseCount;i++){
@@ -182,31 +193,12 @@ function setupSceneObjects(){
     d.userData.velocity = new THREE.Vector3();
     debrisGroup.add(d); debrisParticles.push(d);
   }
-
-  // Wall Cloud
-  for(let i=0;i<wallCloudCount;i++){
-    let p = new THREE.Mesh(new THREE.SphereGeometry(5,6,6), new THREE.MeshStandardMaterial({color:0x333333, transparent:true, opacity:0.5}));
-    p.position.set((Math.random()-0.5)*200, 100+Math.random()*50, (Math.random()-0.5)*200);
-    scene.add(p); wallCloudParticles.push(p);
-  }
-
-  // Funnel Cloud
-  for(let i=0;i<funnelCloudCount;i++){
-    let p = new THREE.Mesh(new THREE.ConeGeometry(3,15,8), new THREE.MeshStandardMaterial({color:0x555555, transparent:true, opacity:0.6}));
-    p.position.set((Math.random()-0.5)*20, 60+Math.random()*30, (Math.random()-0.5)*20);
-    scene.add(p); funnelCloudParticles.push(p);
-  }
-
-  // Storm Base
-  for(let i=0;i<stormBaseCount;i++){
-    let p = new THREE.Mesh(new THREE.SphereGeometry(10,6,6), new THREE.MeshStandardMaterial({color:0x444444, transparent:true, opacity:0.3}));
-    p.position.set((Math.random()-0.5)*300, 0, (Math.random()-0.5)*300);
-    scene.add(p); stormBaseParticles.push(p);
-  }
 }
 
 function resetScene(){
   tornado.position.set(-400,60,0);
+  wallCloud.position.set(-400,140,0);
+  supercell.position.set(-400,200,0);
   houses.forEach(h=>h.userData.damagedParts=[]);
   trees.forEach(t=>t.userData.damagedParts=[]);
   debrisParticles.forEach(d=>d.userData.velocity.set(0,0,0));
@@ -217,10 +209,12 @@ function animate(){
   requestAnimationFrame(animate);
 
   if(animating){
-    tornado.position.x += tornadoSpeed;
+    tornado.position.x += tornadoSpeed*0.1;
     tornado.rotation.y += 0.05;
+    wallCloud.rotation.y += 0.01;
+    supercell.rotation.y += 0.005;
 
-    // Houses damage & debris
+    // Procedural destruction
     houses.forEach(h=>{
       let dist = h.position.distanceTo(tornado.position);
       if(dist<tornadoWidth*2){
@@ -231,7 +225,6 @@ function animate(){
             c.rotation.z += (Math.random()-0.5)*0.5;
             h.userData.damagedParts.push(c);
 
-            // debris spawn
             if(!phoneMode){
               let debris = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color:c.material.color}));
               debris.position.copy(c.getWorldPosition(new THREE.Vector3()));
@@ -243,7 +236,6 @@ function animate(){
       }
     });
 
-    // Trees damage
     trees.forEach(t=>{
       let dist = t.position.distanceTo(tornado.position);
       if(dist<tornadoWidth*2){
@@ -264,7 +256,6 @@ function animate(){
       }
     });
 
-    // Debris movement (sucked into tornado)
     debrisParticles.forEach(d=>{
       let dir = new THREE.Vector3().subVectors(tornado.position,d.position);
       let dist = dir.length();
@@ -277,44 +268,26 @@ function animate(){
       }
     });
 
-    // Wall Cloud motion
-    wallCloudParticles.forEach(p=>{
-      p.position.x += Math.sin(Date.now()*0.001)*0.1;
-      p.position.z += Math.cos(Date.now()*0.001)*0.1;
-    });
-
-    // Funnel Cloud spin
-    funnelCloudParticles.forEach(p=>{
-      p.rotation.y += 0.05;
-      p.position.x = tornado.position.x + Math.sin(Date.now()*0.002)*10;
-      p.position.z = tornado.position.z + Math.cos(Date.now()*0.002)*10;
-    });
-
-    // Storm Base slowly drifts
-    stormBaseParticles.forEach(p=>{
-      p.position.x += Math.sin(Date.now()*0.001)*0.05;
-      p.position.z += Math.cos(Date.now()*0.001)*0.05;
-    });
-
-    // Lightning strikes
-    lightningCooldown--;
-    if(lightningCooldown<=0 && Math.random()<0.01){
-      powerLines.forEach(p=>{
-        if(Math.random()<0.5){
-          let origColor = p.material.color.clone();
-          p.material.color.set(0xffffff);
-          setTimeout(()=>{p.material.color.copy(origColor)},200);
-        }
-      });
-      lightningCooldown = 200 + Math.random()*200;
+    // Lightning
+    lightningCooldown -= 1;
+    if(lightningCooldown<=0 && Math.random()<0.02){
+      createLightning();
+      lightningCooldown = 50;
     }
-
-    // Ground scour
-    let intensity = Math.min(windSpeed/200,1);
-    ground.material.color.setRGB(0.17+0.2*intensity,0.24+0.2*intensity,0.17);
   }
 
   renderer.render(scene,camera);
+}
+
+function createLightning(){
+  let startX = tornado.position.x + (Math.random()-0.5)*tornadoWidth*2;
+  let startZ = tornado.position.z + (Math.random()-0.5)*tornadoWidth*2;
+  let lightningGeo = new THREE.CylinderGeometry(0.2,0.2,50,6);
+  let lightningMat = new THREE.MeshBasicMaterial({color:0xffffff});
+  let bolt = new THREE.Mesh(lightningGeo, lightningMat);
+  bolt.position.set(startX,100,startZ);
+  lightningGroup.add(bolt);
+  setTimeout(()=>{lightningGroup.remove(bolt)},200);
 }
 </script>
 </body>
