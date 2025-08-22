@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", function() {
             if (officialUrls.includes(pageUrl)) {
                 console.log("DEBUG: Official Helios URL detected.");
                 iconElement.classList.add("fa", "fa-circle-check", "sitechecker-secure");
-                messageElement.innerHTML = `This link <b>(${pageUrl})</b> is a secure, official Helios Browser link.`;
+                messageElement.innerHTML = `This link <b>(${https://wisewyattk20.github.io/Tornado-Simulator/})</b> is a secure, official Helios Browser link.`;
             } else {
 
             }
