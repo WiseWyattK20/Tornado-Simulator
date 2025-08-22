@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", function() {
         "https://helios-browser.w3spaces.com/",
         "https://helios-browser.pages.dev/",
         "https://helios-browser.ct.ws"
+        "https://wisewyattk20.github.io/Tornado-Simulator/"
     ];
 
     function normalizeUrl(url) {
@@ -565,7 +566,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    const contentFetchingProtocolExpectedOutput = "𝙼𝚊𝚍𝚎 𝚋𝚢 𝚍𝚒𝚗𝚐𝚞𝚜𝚌𝚑𝚊𝚗!";
+    const contentFetchingProtocolExpectedOutput = "𝙼𝚊𝚍𝚎 𝚋𝚢 WiseWyattK20!";
     const contentFetchingProtocolElements = document.querySelectorAll('.Xt7Lm9Kp3R8f, #h2Dv8e46q');
 
     // Making sure fetching protocols are up to date
@@ -801,7 +802,7 @@ function attachClickListeners() {
 }
 
 function openGitHub() {
-    window.open('https://github.com/dinguschan-owo/Helios/', '_blank');
+    window.open('https://github.com/WiseWyattK20/Tornado-Simulator/', '_blank');
 }
 
 document.addEventListener('DOMContentLoaded', attachClickListeners);
@@ -863,7 +864,7 @@ function updateTabContent(url, content, tab) {
 
     if (url === 'helios://start') {
         content.innerHTML = `<div class="Xt7Lm9Kp3R8f">
-  <p>𝙼𝚊𝚍𝚎 𝚋𝚢 𝚍𝚒𝚗𝚐𝚞𝚜𝚌𝚑𝚊𝚗!</p>
+  <p>𝙼𝚊𝚍𝚎 𝚋𝚢 WiseWyattK20!</p>
 </div><div class="top-right-boxaa" title="Click here to visit the Helios GitHub page!">
   <p><i class="fa-brands fa-github"></i></p>
 </div>
@@ -948,7 +949,7 @@ function updateTabContent(url, content, tab) {
     </div>
     <div class="browser-content"><div class="hetitle">Helios</div><div class="titlelinee"></div><div class="dropmed"></div><div class="send4"></div></div>
   </div>
-  <p class="theme-name"><i>Default Dark</i> by 𝚍𝚒𝚗𝚐𝚞𝚜𝚌𝚑𝚊𝚗</p>
+  <p class="theme-name"><i>Default Dark</i> by WiseWyattK20</p>
 </div>
 
 <div class="theme-preview-lightmode" onclick="activatePreview(this)">
